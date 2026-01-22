@@ -1,0 +1,2 @@
+source /home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/bootloader/gdbinit/symbols
+source /home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/bootloader/gdbinit/connect
