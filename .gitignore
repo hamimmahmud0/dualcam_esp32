@@ -1,0 +1,37 @@
+# Build directories
+build/
+dist/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ESP-IDF specific
+sdkconfig.old
+sdkconfig.json
+partition_table.bin
+bootloader.bin
+*.elf
+*.bin
+*.map
+
+# Dependencies
+components/*/managed_components/
+managed_components/
