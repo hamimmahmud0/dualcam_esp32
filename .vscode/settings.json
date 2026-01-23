@@ -1,3 +1,5 @@
 {
-    "idf.currentSetup": "/home/hamim-mahmud/esp/esp-idf"
+    "idf.currentSetup": "/home/hamim-mahmud/esp/esp-idf",
+    "idf.port": "/dev/ttyUSB0",
+    "idf.flashType": "UART"
 }

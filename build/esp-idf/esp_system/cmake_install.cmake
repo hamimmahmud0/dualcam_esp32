@@ -39,6 +39,6 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("/home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/esp-idf/esp_system/port/cmake_install.cmake")
+  include("/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/esp-idf/esp_system/port/cmake_install.cmake")
 endif()
 

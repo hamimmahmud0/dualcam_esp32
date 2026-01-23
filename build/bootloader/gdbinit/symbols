@@ -22,4 +22,4 @@ set confirm off
 set confirm on
 
 # Load application symbols
-file /home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/bootloader/bootloader.elf
+file /home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/bootloader/bootloader.elf

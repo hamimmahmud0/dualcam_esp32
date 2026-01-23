@@ -3,3 +3,4 @@ source "/home/hamim-mahmud/esp/esp-idf/components/esp_app_format/Kconfig.projbui
 source "/home/hamim-mahmud/esp/esp-idf/components/esp_rom/Kconfig.projbuild"
 source "/home/hamim-mahmud/esp/esp-idf/components/esptool_py/Kconfig.projbuild"
 source "/home/hamim-mahmud/esp/esp-idf/components/partition_table/Kconfig.projbuild"
+source "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/main/Kconfig.projbuild"

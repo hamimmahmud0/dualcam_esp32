@@ -1,2 +1,2 @@
-source /home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/gdbinit/symbols
-source /home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/gdbinit/connect
+source /home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/gdbinit/symbols
+source /home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/gdbinit/connect

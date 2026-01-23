@@ -1,0 +1,31 @@
+menu "MasterCam"
+
+config MASTER_ID
+    string "Master device ID (6 hex digits)"
+    default "000000"
+
+config SLAVE_ID
+    string "Slave device ID (6 hex digits)"
+    default "000000"
+
+config WIFI_SSID
+    string "WiFi SSID"
+    default ""
+
+config WIFI_PASSWORD
+    string "WiFi Password"
+    default ""
+
+config CAPSEQ_SLAVE_PREPARE_DELAY_MS
+    int "Slave prepare delay (ms)"
+    default 3000
+
+config CAPSEQ_DROP_FRAMES
+    int "Drop frames to stabilize"
+    default 5
+
+config CAPSEQ_GPIO_TRIGGER
+    int "GPIO for slave trigger"
+    default 16
+
+endmenu

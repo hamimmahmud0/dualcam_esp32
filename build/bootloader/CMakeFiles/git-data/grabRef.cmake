@@ -15,7 +15,7 @@
 
 set(HEAD_HASH)
 
-file(READ "/home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/bootloader/CMakeFiles/git-data/HEAD" HEAD_CONTENTS LIMIT 1024)
+file(READ "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/bootloader/CMakeFiles/git-data/HEAD" HEAD_CONTENTS LIMIT 1024)
 
 string(STRIP "${HEAD_CONTENTS}" HEAD_CONTENTS)
 set(GIT_DIR "/home/hamim-mahmud/esp/esp-idf/.git")
@@ -34,17 +34,17 @@ if(HEAD_CONTENTS MATCHES "ref")
 	# named branch
 	string(REPLACE "ref: " "" HEAD_REF "${HEAD_CONTENTS}")
 	if(EXISTS "${GIT_DIR}/${HEAD_REF}")
-		configure_file("${GIT_DIR}/${HEAD_REF}" "/home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/bootloader/CMakeFiles/git-data/head-ref" COPYONLY)
+		configure_file("${GIT_DIR}/${HEAD_REF}" "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/bootloader/CMakeFiles/git-data/head-ref" COPYONLY)
 	elseif(EXISTS "${GIT_DIR}/logs/${HEAD_REF}")
-		configure_file("${GIT_DIR}/logs/${HEAD_REF}" "/home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/bootloader/CMakeFiles/git-data/head-ref" COPYONLY)
+		configure_file("${GIT_DIR}/logs/${HEAD_REF}" "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/bootloader/CMakeFiles/git-data/head-ref" COPYONLY)
 		set(HEAD_HASH "${HEAD_REF}")
 	endif()
 else()
 	# detached HEAD
-	configure_file("${GIT_DIR}/HEAD" "/home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/bootloader/CMakeFiles/git-data/head-ref" COPYONLY)
+	configure_file("${GIT_DIR}/HEAD" "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/bootloader/CMakeFiles/git-data/head-ref" COPYONLY)
 endif()
 
 if(NOT HEAD_HASH)
-	file(READ "/home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/build/bootloader/CMakeFiles/git-data/head-ref" HEAD_HASH LIMIT 1024)
+	file(READ "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/bootloader/CMakeFiles/git-data/head-ref" HEAD_HASH LIMIT 1024)
 	string(STRIP "${HEAD_HASH}" HEAD_HASH)
 endif()

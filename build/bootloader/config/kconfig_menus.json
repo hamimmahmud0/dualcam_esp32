@@ -7282,10 +7282,7 @@
                         "help": "After the panic handler executes, you can specify a number of seconds to\nwait before the device reboots.",
                         "id": "ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS",
                         "name": "ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS",
-                        "range": [
-                            0,
-                            99
-                        ],
+                        "range": null,
                         "title": "Panic reboot delay (Seconds)",
                         "type": "int"
                     },

@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MasterCam</title>
+  <style>
+    :root {
+      --primary: #00d1b2;
+      --dark: #1f2937;
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --muted: #6b7280;
+      --accent: #2563eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(180deg, #f9fafb 0%, #eef2f7 100%);
+      color: #1f2937;
+    }
+    header {
+      padding: 24px 20px;
+      background: var(--dark);
+      color: #fff;
+    }
+    header h1 { margin: 0 0 6px 0; font-size: 24px; }
+    header p { margin: 0; color: #cbd5f5; }
+    main {
+      padding: 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 10px;
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+      padding: 16px;
+    }
+    .card h3 { margin: 0 0 12px 0; font-size: 18px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+    input, select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #fff;
+    }
+    button {
+      background: var(--primary);
+      border: none;
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-right: 8px;
+      margin-top: 6px;
+    }
+    button.secondary { background: #64748b; }
+    button.preset { background: var(--accent); }
+    .status {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .stream {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+      background: #0f172a;
+      min-height: 200px;
+    }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    .pill { display: inline-block; padding: 4px 8px; background: #e2e8f0; border-radius: 999px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MasterCam</h1>
+    <p>ESP32-CAM dual camera sync controller</p>
+  </header>
+  <main>
+    <section class="card">
+      <h3>Streaming</h3>
+      <button id="startStream">Start Stream</button>
+      <button id="stopStream" class="secondary">Stop Stream</button>
+      <div class="status" id="streamStatus">Stream idle</div>
+    </section>
+
+    <section class="card">
+      <h3>Capture Sequence</h3>
+      <form id="captureForm">
+        <div class="row">
+          <div>
+            <label>Session</label>
+            <input name="session" value="session1" />
+          </div>
+          <div>
+            <label>Frame Count</label>
+            <input name="frame_count" type="number" value="5" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Frame Size</label>
+            <select name="framesize">
+              <option value="qqvga">QQVGA</option>
+              <option value="qvga">QVGA</option>
+              <option value="vga">VGA</option>
+              <option value="svga" selected>SVGA</option>
+              <option value="xga">XGA</option>
+              <option value="sxga">SXGA</option>
+              <option value="uxga">UXGA</option>
+            </select>
+          </div>
+          <div>
+            <label>Pixel Format</label>
+            <select name="pixel_format">
+              <option value="jpeg" selected>JPEG</option>
+              <option value="rgb565">RGB565</option>
+              <option value="raw">RAW</option>
+              <option value="grayscale">Grayscale</option>
+              <option value="yuv422">YUV422</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit">Start Capture</button>
+        <div class="status" id="captureStatus"></div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h3>Sensor Presets</h3>
+      <div class="grid-3">
+        <button type="button" class="preset" data-preset="neutral">Neutral</button>
+        <button type="button" class="preset" data-preset="lowlight">Low Light</button>
+        <button type="button" class="preset" data-preset="highcontrast">High Contrast</button>
+      </div>
+      <div class="status" id="presetStatus"></div>
+    </section>
+
+    <section class="card">
+      <h3>Sensor Settings</h3>
+      <form id="sensorForm">
+        <div class="grid-3">
+          <div>
+            <label>Framesize</label>
+            <select name="framesize">
+              <option value="qvga">QVGA</option>
+              <option value="vga">VGA</option>
+              <option value="svga" selected>SVGA</option>
+              <option value="xga">XGA</option>
+              <option value="sxga">SXGA</option>
+              <option value="uxga">UXGA</option>
+            </select>
+          </div>
+          <div>
+            <label>Quality (2..63)</label>
+            <input name="quality" type="number" value="10" />
+          </div>
+          <div>
+            <label>Brightness (-2..2)</label>
+            <input name="brightness" type="number" value="0" />
+          </div>
+          <div>
+            <label>Contrast (-2..2)</label>
+            <input name="contrast" type="number" value="0" />
+          </div>
+          <div>
+            <label>Saturation (-2..2)</label>
+            <input name="saturation" type="number" value="0" />
+          </div>
+          <div>
+            <label>Special Effect (0..6)</label>
+            <input name="special_effect" type="number" value="0" />
+          </div>
+          <div>
+            <label>AWB</label>
+            <select name="awb"><option value="1" selected>On</option><option value="0">Off</option></select>
+          </div>
+          <div>
+            <label>AWB Gain</label>
+            <select name="awb_gain"><option value="1" selected>On</option><option value="0">Off</option></select>
+          </div>
+          <div>
+            <label>WB Mode (0..4)</label>
+            <input name="wb_mode" type="number" value="0" />
+          </div>
+          <div>
+            <label>Exposure Ctrl</label>
+            <select name="exposure_ctrl"><option value="1" selected>On</option><option value="0">Off</option></select>
+          </div>
+          <div>
+            <label>AEC2</label>
+            <select name="aec2"><option value="0" selected>Off</option><option value="1">On</option></select>
+          </div>
+          <div>
+            <label>AEC Value (0..1200)</label>
+            <input name="aec_value" type="number" value="300" />
+          </div>
+          <div>
+            <label>AE Level (-2..2)</label>
+            <input name="ae_level" type="number" value="0" />
+          </div>
+          <div>
+            <label>Gain Ctrl</label>
+            <select name="gain_ctrl"><option value="1" selected>On</option><option value="0">Off</option></select>
+          </div>
+          <div>
+            <label>AGC Gain (0..30)</label>
+            <input name="agc_gain" type="number" value="0" />
+          </div>
+          <div>
+            <label>Gain Ceiling (0..6)</label>
+            <input name="gainceiling" type="number" value="0" />
+          </div>
+          <div>
+            <label>BPC</label>
+            <select name="bpc"><option value="0" selected>Off</option><option value="1">On</option></select>
+          </div>
+          <div>
+            <label>WPC</label>
+            <select name="wpc"><option value="0" selected>Off</option><option value="1">On</option></select>
+          </div>
+          <div>
+            <label>Raw GMA</label>
+            <select name="raw_gma"><option value="0" selected>Off</option><option value="1">On</option></select>
+          </div>
+          <div>
+            <label>Lenc</label>
+            <select name="lenc"><option value="0" selected>Off</option><option value="1">On</option></select>
+          </div>
+          <div>
+            <label>H-Mirror</label>
+            <select name="hmirror"><option value="0" selected>No</option><option value="1">Yes</option></select>
+          </div>
+          <div>
+            <label>V-Flip</label>
+            <select name="vflip"><option value="0" selected>No</option><option value="1">Yes</option></select>
+          </div>
+          <div>
+            <label>DCW</label>
+            <select name="dcw"><option value="0" selected>Off</option><option value="1">On</option></select>
+          </div>
+          <div>
+            <label>Colorbar</label>
+            <select name="colorbar"><option value="0" selected>Off</option><option value="1">On</option></select>
+          </div>
+        </div>
+        <button type="submit">Apply Settings</button>
+        <div class="status" id="sensorStatus"></div>
+      </form>
+    </section>
+
+    <section class="card" style="grid-column: 1 / -1;">
+      <h3>Live View</h3>
+      <img id="stream" class="stream" alt="Live stream" />
+      <div class="status" id="liveStatus">Status: --</div>
+    </section>
+  </main>
+
+  <script>
+    const streamImg = document.getElementById('stream');
+    const streamStatus = document.getElementById('streamStatus');
+    const captureStatus = document.getElementById('captureStatus');
+    const sensorStatus = document.getElementById('sensorStatus');
+    const presetStatus = document.getElementById('presetStatus');
+    const liveStatus = document.getElementById('liveStatus');
+
+    const presets = {
+      neutral: { brightness: 0, contrast: 0, saturation: 0, special_effect: 0, awb: 1, exposure_ctrl: 1 },
+      lowlight: { brightness: 1, contrast: 0, saturation: 0, aec2: 1, ae_level: 1, agc_gain: 10, gainceiling: 4 },
+      highcontrast: { brightness: 0, contrast: 2, saturation: 1, special_effect: 0, aec2: 0, ae_level: -1 }
+    };
+
+    async function postSensor(body) {
+      await fetch('/api/sensor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    }
+
+    document.getElementById('startStream').onclick = async () => {
+      await fetch('/api/stream/start');
+      streamImg.src = '/stream';
+      streamStatus.textContent = 'Streaming...';
+    };
+
+    document.getElementById('stopStream').onclick = async () => {
+      await fetch('/api/stream/stop');
+      streamImg.removeAttribute('src');
+      streamStatus.textContent = 'Stream stopped';
+    };
+
+    document.getElementById('captureForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const params = new URLSearchParams(new FormData(e.target));
+      captureStatus.textContent = 'Capturing...';
+      await fetch('/api/capture?' + params.toString());
+      captureStatus.textContent = 'Capture done';
+    };
+
+    document.getElementById('sensorForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const body = {};
+      for (const [key, value] of new FormData(e.target).entries()) {
+        body[key] = Number.isNaN(Number(value)) ? value : Number(value);
+      }
+      sensorStatus.textContent = 'Applying...';
+      await postSensor(body);
+      sensorStatus.textContent = 'Applied';
+    };
+
+    document.querySelectorAll('button.preset').forEach((btn) => {
+      btn.onclick = async () => {
+        const preset = presets[btn.dataset.preset] || {};
+        presetStatus.textContent = 'Applying preset...';
+        await postSensor(preset);
+        presetStatus.textContent = 'Preset applied';
+      };
+    });
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        liveStatus.textContent = `Status: stream ${data.stream_enabled ? 'on' : 'off'} | heap ${data.free_heap} | uptime ${Math.round(data.uptime_ms / 1000)}s`;
+      } catch (err) {
+        liveStatus.textContent = 'Status: offline';
+      }
+    }
+
+    setInterval(refreshStatus, 2000);
+    refreshStatus();
+  </script>
+</body>
+</html>

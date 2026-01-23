@@ -1,4 +1,4 @@
-# Install script for directory: /home/hamim-mahmud/esp/esp-idf/examples/get-started/hello_world/main
+# Install script for directory: /home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/main
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

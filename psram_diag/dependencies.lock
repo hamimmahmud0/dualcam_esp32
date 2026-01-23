@@ -1,0 +1,18 @@
+dependencies:
+  espressif/esp_jpeg:
+    dependencies: []
+    source:
+      path: 
+        /home/hamim-mahmud/esp/esp-idf/examples/esp32cam/esp32-cam-websrv/managed_components/espressif__esp_jpeg
+      type: local
+    version: 1.3.1
+  idf:
+    source:
+      type: idf
+    version: 5.5.2
+direct_dependencies:
+- espressif/esp_jpeg
+- idf
+manifest_hash: 8d8f059d8547868d7c05f8b46c4e0ccb86ee911200bb5fd6946e92b42a2fc77e
+target: esp32
+version: 2.0.0

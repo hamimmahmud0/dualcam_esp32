@@ -1,0 +1,475 @@
+2023-07-27  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* VERSION:
+
+	  - Updated to 0.2.0.
+
+	* Merged changes from esp32-cam-websrv-0.1.0.br-fix_wifi-1.
+
+
+2023-07-27  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* VERSION:
+
+	  - Updated to 0.1.0-br-fix_wifi-1.
+
+	* main/config.h:
+
+	  - CAMWEBSRV_PING_TIMEOUT_INIT: renamed to CAMWEBSRV_PING_TIMEOUT_SEND
+
+	  - CAMWEBSRV_PING_TIMEOUT_SENT: renamed to CAMWEBSRV_PING_TIMEOUT_RECV
+
+	  - CAMWEBSRV_PING_CYCLE_INTERVAL: ping interval is now 30 secs.
+
+	* main/ping.c:
+
+	  - Consolidated states INIT and BLCK.
+
+	  - Renamed states INIT and SENT to SEND and RECV, respectively.
+
+	  - Fixed off-by-one timeout counter bug.
+
+	  - Ping success log events are now logged only at DEBUG and VERBOSE
+	    log levels.
+
+	  - If ping_host is unset, or set to an empty string, the ping module
+	    will be disabled.
+
+
+2023-07-26  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/main.c:
+
+	  - Call camwebsrv_ping_process() from main event loop. Trigger
+	    delayed restart if ping fails.
+
+	* main/ping.c:
+
+	  - camwebsrv_ping_process(): Fixed nextevent.
+
+	  - camwebsrv_ping_process(): Returns without doing anything if called
+	    before next event is due.
+
+
+2023-07-22  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/config.h:
+
+	  - Added new CAMWEBSRV_MAIN_REBOOT_DELAY_MSEC config parameter.
+
+	* main/main.c:
+
+	  - Will now automatically reboot after a preconfigured delay when an
+	    error occurrs.
+
+	* main/wifi.c:
+
+	  - camwebsrv_wifi_init() now returns ESP_ERR_TIMEOUT when it times
+	    out.
+
+
+2023-07-20  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/main.c:
+	* main/wifi.c:
+	* main/wifi.h:
+
+	  - Tidy up: camwebsrv_wifi_init() now gives back a handle to a wifi
+	    structure (object).
+
+
+2023-07-10  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/main.c:
+	* main/wifi.c:
+
+	  - Tidy up: moved creation of default event loop to main module.
+
+
+2023-07-07  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/ping.c:
+	* main/ping.h:
+
+	  - Added pingger module.
+
+	* main/CMakeLists.txt:
+
+	  - Added lwip dependency.
+
+
+2023-07-04  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/storage.c:
+
+	  - Use local copy of errno.
+
+
+2023-06-25  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/wifi.c:
+	* main/main.c:
+
+	  - Moved NVS initialisation from wifi module to main.
+
+
+2023-03-06  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/httpd.c:
+	* main/httpd.h:
+	* main/sclients.c:
+	* main/sclients.h:
+	* main/main.c:
+
+	  - Moved sclients event mutex to main event loop.
+
+	  - sclients.process() now calculates how many msecs before its next
+	    event is due. That is then used in the main loop block timeout.
+
+	  - sclients.process() no longer checks against duplicate frames.
+	    Each pulled frame is guaranteed unique since another check ensures
+	    that the minimum time between frames has elapsed before a new one
+	    is pulled.
+
+	* main/camera.c:
+	* main/camera.h:
+
+	  - Added camwebsrv_camera_fps_get().
+
+
+2023-03-01  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* VERSION:
+
+	  - Updated to v0.1.0-br-fix_wifi.
+
+
+2023-02-27  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* VERSION:
+
+	  - Updated to v0.1.0.
+
+	* main/httpd.c:
+	* main/sclients.c:
+
+	  - Now uses camwebsrv_vbytes_t to compose HTTP headers.
+
+
+2023-02-26  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/config.h:
+
+	  - Added the following definitions:
+
+	    - CAMWEBSRV_CAMERA_FPS_MIN: 1
+	    - CAMWEBSRV_CAMERA_FPS_MAX: 8
+	    - CAMWEBSRV_CAMERA_DEFAULT_FPS: 4
+
+	* main/httpd.c:
+	* main/camera.c:
+
+	  - Added new fps configuration parameter.
+
+	* storage/ov2640.htm:
+	* storage/ov3660.htm:
+
+	  - Added new FPS slider control.
+
+
+2023-02-26  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/config.h:
+
+	  - Added CAMWEBSRV_CAMERA_INITIAL_FRAME_SKIP; set to 3.
+
+	* main/camera.c:
+
+	  - When getting a frame for the first time since init() or reset(),
+	    skip the first CAMWEBSRV_CAMERA_INITIAL_FRAME_SKIP frames.
+
+	  - When resetting, return pending frame first.
+
+	* main/httpd.c:
+
+	  - When resetting, disconnect all connected stream clients.
+
+	* main/sclients.h:
+	* main/sclients.c:
+
+	  - Added camwebsrv_sclients_purge() to disconnect all connected
+	    clients.
+
+
+2023-02-26  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/camera.c:
+
+	  - Flash state is now set back to default in
+	    camwebsrv_camera_reset().
+
+
+2023-02-25  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* storage/script.js:
+
+	  - Tidied up!
+
+	  - Reset button now stops streaming and does a status update.
+
+
+2023-02-25  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/camera.c:
+	* main/camera.h:
+
+	  - Added new camwebsrv_camera_reset() function to deinitialise and
+	    then reinitialise the camera.
+
+	* main/httpd.c:
+
+	  - Added http://<host>/reset handler to reset camera.
+
+	* storage/ov2640.htm:
+	* storage/ov3660.htm:
+	* storage/script.js:
+
+	  - Added new reset button to reset camera.
+
+	* main/camera.c:
+	* main/camera.h:
+	* main/httpd.c:
+
+	  - Renamed camwebsrv_camera_set() and camwebsrv_camera_get() to
+	    camwebsrv_camera_ctrl_set() and camwebsrv_camera_ctrl_get(),
+	    respectively.
+
+
+2023-02-21  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/camera.c:
+
+	  - Camera module now uses a separate mutex for frame grabbing and
+	    another one for all other functions.
+
+
+2023-02-19  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* storage/script.js:
+
+	  - No need to load a new still if we are already streaming.
+
+	* main/sclients.c:
+
+	  - camwebsrv_sclients_add() now logs client IP and port.
+
+	* sdkconfig.defaults:
+
+	  - Added HTTPD_QUEUE_WORK_BLOCKING=y
+
+
+2023-02-15  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* storage/script.js:
+
+	  - Requests to http://<server>/stream and http://<server>/capture are
+	    now made with an extra unused random number parameter. This is
+	    workaround for a problem in some browsers that prevents a second
+	    tab or window from streaming from the same camera.
+
+
+2023-02-15  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/camera.c:
+	* main/sclients.c:
+
+	  - Added optional timestamp parameter to camwebsrv_camera_frame_grab().
+
+	  - Replaced FPS frame throttler in camwebsrv_sclients_process() with
+	    a frame timestamp check to prevent sending the same frame more
+	    than once.
+
+	* main/sclients.c:
+
+	  - Removed unused len field in _camwebsrv_sclients_t struct.
+
+	  - Added binary semaphore to prevent unnecessary loop spin when there
+	    are no stream clilents.
+
+
+2023-02-14  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/camera.c:
+
+	  - Set default resolution and flash state on init.
+
+	* main/config.h:
+
+	  - Set CAMWEBSRV_CAMERA_STREAM_FPS to 4.
+
+	  - Set CAMWEBSRV_MAIN_MSECS_PER_TICK 10.
+
+	* main/sclients.c:
+
+	  - Added extra check to enforce FPS rate.
+
+	  - Switched to using esp_timer_get_time() instead of
+	    xTaskGetTickCount() to avoid overflow.
+
+
+2023-02-12  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/config.h:
+	* main/sclients.c:
+
+	  - Added client send timeout, CAMWEBSRV_SCLIENTS_SEND_TMOUT (1 sec)
+	    and client idle timeout, CAMWEBSRV_SCLIENTS_IDLE_TMOUT (3 secs).
+
+	  - sclients module now includes socket FD in log text.
+
+	* main/httpd.c:
+
+	  - Log all requests.
+
+
+2023-02-12  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/httpd.c:
+	* storage/script.js:
+
+	  - Stream requests, as well as all other request types, are now all
+	    handled by the same httpd instance. Removed now redundant port 81
+	    httpd instance.
+
+
+2023-02-12  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/config.h:
+	* main/main.c:
+
+	  - Separated camera FPS, CAMWEBSRV_CAMERA_STREAM_FPS, which is now
+	    set to 2, and main loop ms per tick rate,
+	    CAMWEBSRV_MAIN_MSECS_PER_TICK, which is now set to 125. Need to
+	    keep request processing frequent enough, but FPS has to remain low
+	    until we can figure out how to speed things up.
+
+
+2023-02-12  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/main.c:
+	* main/httpd.c:
+	* main/httpd.h:
+
+	  - Stream requests are now managed asynchronously by the sclients
+	    module. Processing (really just sending frame data back to the
+	    client) is now executed at every tick of the main thread loop.
+	    Multiple concurrent stream requests are now supported.
+
+	* main/config.h:
+
+	  - Raised hard-coded FPS to 8.
+
+
+2023-02-12  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/CMakeLists.txt:
+	* main/config.h:
+	* main/sclients.c:
+	* main/sclients.h:
+
+	  - Added stream client list module.
+
+
+2023-02-11  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/vbytes.c:
+
+	  - Fixed _camwebsrv_vbytes_append() length problem.
+
+
+2023-02-08  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/vbytes.c:
+	* main/vbytes.h:
+
+	  - Added camwebsrv_vbytes_set_vlist() and
+	    camwebsrv_vbytes_append_vlist()
+
+
+2023-02-05  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/camera.c:
+	* main/camera.h:
+
+	  - camwebsrv_camera module functions now require a camera object
+	    argument.
+
+	  - Replaced camwebsrv_camera_frame() with
+	    camwebsrv_camera_frame_grab() and
+	    camwebsrv_camera_frame_dispose().
+
+	  - camwebsrv_camera object now holds a reference to a frame that
+	    is refershed no more than required by CAMWEBSRV_CAMERA_STREAM_FPS.
+
+	  - All camwebsrv_camera operations are now protected by a mutex.
+
+	* main/httpd.c:
+
+	  - Removed unused #include.
+
+	  - camwebsrv_camera object is now instiated from within
+	    camwebsrv_httpd.
+
+	  - camwebsrv_httpd object now includes reference to
+	    camwebsrv_camera object.
+
+	* main/main.c:
+
+	  - Moved camera initialisation to camwebsrv_httpd module.
+
+	* main/CMakeLists.txt:
+
+	  - Added esp_timer to PRIV_REQUIRES list. Again.
+
+
+2023-01-26  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/config.h:
+	* main/vbytes.c:
+	* main/vbytes.h:
+
+	  - Added new variable byte array structure module.
+
+	* main/CMakeLists.txt:
+
+	  - Added vbytes.c.
+
+
+2023-01-17  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* main/config.h:
+	* main/httpd.c:
+
+	  - Enforce streaming frame rate limit to 4 FPS.
+
+	* main/CMakeLists.txt:
+
+	  - Added esp_timer as a required component.
+
+
+2023-01-17  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* VERSION:
+
+	  - Updated to v0.0.1.br.fix_streaming
+
+
+2023-01-15  Vino Fernando Crescini  <vfcrescini@gmail.com>
+
+	* VERSION:
+
+	  - Updated to v0.0.1.
+
+	* ChangeLog:
+
+	  - Change log started.
