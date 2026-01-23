@@ -144,7 +144,6 @@ Flow (master):
 File extensions used:
 - JPEG -> `.jpg`
 - RGB565 -> `.rgb565`
-- RAW -> `.raw`
 - GRAYSCALE -> `.gray`
 - YUV422 -> `.yuv`
 
@@ -154,7 +153,7 @@ File extensions used:
 
 ## 8) Streaming Behavior (Master)
 
-- `/stream` uses MJPEG multipart boundary.
+- `/stream` (port 81) uses MJPEG multipart boundary.
 - `stream_handler` forces JPEG before loop to avoid mismatch.
 - `/api/stream/start` sets `s_stream_enabled = true`
 - `/api/stream/stop` sets `s_stream_enabled = false`

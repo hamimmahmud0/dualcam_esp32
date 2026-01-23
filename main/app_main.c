@@ -17,6 +17,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "driver/gpio.h"
@@ -52,6 +53,17 @@
 
 #define CAPTURE_DIR "/eMMC/capture"
 
+#if CONFIG_FREERTOS_UNICORE
+#define NET_TASK_CORE 0
+#define CAPTURE_TASK_CORE 0
+#else
+#define NET_TASK_CORE 0
+#define CAPTURE_TASK_CORE 1
+#endif
+
+#define CAPTURE_TASK_STACK_SIZE 8192
+#define CAPTURE_TASK_PRIORITY 5
+
 #ifndef HTTPD_409_CONFLICT
 #define HTTPD_409_CONFLICT 409
 #endif
@@ -76,15 +88,31 @@
 #define WIFI_POST_INIT_DELAY_MS 500
 
 static httpd_handle_t s_httpd = NULL;
+static httpd_handle_t s_stream_httpd = NULL;
 static volatile bool s_stream_enabled = false;
 static volatile bool s_stream_in_progress = false;
 static volatile bool s_stream_stop_requested = false;
 static int s_stream_fd = -1;
 static EventGroupHandle_t s_wifi_event_group;
 static const int WIFI_CONNECTED_BIT = BIT0;
+static QueueHandle_t s_capture_queue = NULL;
+
+typedef struct {
+    char session[32];
+    char query[256];
+    int frame_count;
+    framesize_t fs;
+    pixformat_t fmt;
+    esp_err_t result;
+    char err_msg[64];
+    SemaphoreHandle_t done;
+} capture_request_t;
 
 static esp_err_t init_camera(void);
 static esp_err_t init_camera_with_format(framesize_t fs, pixformat_t pf);
+static esp_err_t init_capture_task(void);
+static void capture_task(void *arg);
+static esp_err_t run_capture_sequence(capture_request_t *req);
 
 static void init_delay_ms(uint32_t ms)
 {
@@ -143,7 +171,6 @@ static pixformat_t parse_pixformat(const char *value)
     }
     if (strcasecmp(value, "jpeg") == 0) return PIXFORMAT_JPEG;
     if (strcasecmp(value, "rgb565") == 0) return PIXFORMAT_RGB565;
-    if (strcasecmp(value, "raw") == 0) return PIXFORMAT_RAW;
     if (strcasecmp(value, "grayscale") == 0) return PIXFORMAT_GRAYSCALE;
     if (strcasecmp(value, "yuv422") == 0) return PIXFORMAT_YUV422;
     return DEFAULT_PIXEL_FORMAT;
@@ -215,10 +242,9 @@ static void apply_sensor_setting(sensor_t *sensor, const char *key, int value)
     }
 }
 
-static void apply_sensor_settings_from_query(httpd_req_t *req)
+static void apply_sensor_settings_from_query_str(const char *query)
 {
-    char query[256] = {0};
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+    if (!query || query[0] == '\0') {
         return;
     }
 
@@ -227,82 +253,27 @@ static void apply_sensor_settings_from_query(httpd_req_t *req)
         return;
     }
 
-    char value[32];
-    if (httpd_query_key_value(query, "framesize", value, sizeof(value)) == ESP_OK) {
-        framesize_t fs = parse_framesize(value);
-        apply_sensor_setting(sensor, "framesize", fs);
-    }
-    if (httpd_query_key_value(query, "quality", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "quality", atoi(value));
-    }
-    if (httpd_query_key_value(query, "brightness", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "brightness", atoi(value));
-    }
-    if (httpd_query_key_value(query, "contrast", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "contrast", atoi(value));
-    }
-    if (httpd_query_key_value(query, "saturation", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "saturation", atoi(value));
-    }
-    if (httpd_query_key_value(query, "gainceiling", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "gainceiling", atoi(value));
-    }
-    if (httpd_query_key_value(query, "colorbar", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "colorbar", atoi(value));
-    }
-    if (httpd_query_key_value(query, "awb", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "awb", atoi(value));
-    }
-    if (httpd_query_key_value(query, "awb_gain", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "awb_gain", atoi(value));
-    }
-    if (httpd_query_key_value(query, "wb_mode", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "wb_mode", atoi(value));
-    }
-    if (httpd_query_key_value(query, "aec2", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "aec2", atoi(value));
-    }
-    if (httpd_query_key_value(query, "ae_level", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "ae_level", atoi(value));
-    }
-    if (httpd_query_key_value(query, "aec_value", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "aec_value", atoi(value));
-    }
-    if (httpd_query_key_value(query, "agc", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "agc", atoi(value));
-    }
-    if (httpd_query_key_value(query, "agc_gain", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "agc_gain", atoi(value));
-    }
-    if (httpd_query_key_value(query, "gain_ctrl", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "gain_ctrl", atoi(value));
-    }
-    if (httpd_query_key_value(query, "bpc", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "bpc", atoi(value));
-    }
-    if (httpd_query_key_value(query, "wpc", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "wpc", atoi(value));
-    }
-    if (httpd_query_key_value(query, "raw_gma", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "raw_gma", atoi(value));
-    }
-    if (httpd_query_key_value(query, "lenc", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "lenc", atoi(value));
-    }
-    if (httpd_query_key_value(query, "hmirror", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "hmirror", atoi(value));
-    }
-    if (httpd_query_key_value(query, "vflip", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "vflip", atoi(value));
-    }
-    if (httpd_query_key_value(query, "dcw", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "dcw", atoi(value));
-    }
-    if (httpd_query_key_value(query, "special_effect", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "special_effect", atoi(value));
-    }
-    if (httpd_query_key_value(query, "exposure_ctrl", value, sizeof(value)) == ESP_OK) {
-        apply_sensor_setting(sensor, "exposure_ctrl", atoi(value));
+    char query_copy[256];
+    snprintf(query_copy, sizeof(query_copy), "%s", query);
+
+    char *saveptr = NULL;
+    char *pair = strtok_r(query_copy, "&", &saveptr);
+    while (pair) {
+        char *eq = strchr(pair, '=');
+        if (eq) {
+            *eq = '\0';
+            const char *key = pair;
+            const char *value = eq + 1;
+            if (strcmp(key, "framesize") == 0) {
+                framesize_t fs = parse_framesize(value);
+                apply_sensor_setting(sensor, "framesize", fs);
+            } else if (strcmp(key, "pixel_format") == 0) {
+                sensor->set_pixformat(sensor, parse_pixformat(value));
+            } else {
+                apply_sensor_setting(sensor, key, atoi(value));
+            }
+        }
+        pair = strtok_r(NULL, "&", &saveptr);
     }
 }
 
@@ -429,7 +400,8 @@ static esp_err_t home_handler(httpd_req_t *req)
         "const params=new URLSearchParams(new FormData(this));fetch('/api/sensor',{method:'POST',body:params});};"
         "document.getElementById('captureForm').onsubmit=function(e){e.preventDefault();"
         "const params=new URLSearchParams(new FormData(this));fetch('/api/capture?'+params.toString());};"
-        "document.getElementById('stream').src='/stream';"
+        "const streamUrl=location.protocol+'//'+location.hostname+':81/stream';"
+        "document.getElementById('stream').src=streamUrl;"
         "</script></body></html>";
 
     httpd_resp_set_type(req, "text/html");
@@ -448,8 +420,8 @@ static esp_err_t stream_stop_handler(httpd_req_t *req)
 {
     s_stream_enabled = false;
     s_stream_stop_requested = true;
-    if (s_httpd != NULL && s_stream_fd >= 0) {
-        httpd_sess_trigger_close(s_httpd, s_stream_fd);
+    if (s_stream_httpd != NULL && s_stream_fd >= 0) {
+        httpd_sess_trigger_close(s_stream_httpd, s_stream_fd);
         s_stream_fd = -1;
     }
     httpd_resp_sendstr(req, "OK");
@@ -599,6 +571,129 @@ static esp_err_t send_slave_prepare(const char *query)
     return err;
 }
 
+static esp_err_t run_capture_sequence(capture_request_t *req)
+{
+    if (!req) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    req->err_msg[0] = '\0';
+    s_stream_enabled = false;
+
+    esp_err_t err = send_slave_prepare(req->query[0] ? req->query : NULL);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Slave prepare failed: %s", esp_err_to_name(err));
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(CONFIG_CAPSEQ_SLAVE_PREPARE_DELAY_MS));
+
+    bool need_reinit = (req->fmt != PIXFORMAT_JPEG);
+    if (need_reinit) {
+        esp_camera_deinit();
+        gpio_uninstall_isr_service();
+        vTaskDelay(pdMS_TO_TICKS(50));
+        esp_err_t init_err = init_camera_with_format(req->fs, req->fmt);
+        if (init_err != ESP_OK) {
+            ESP_LOGW(TAG, "Capture camera init failed: %s", esp_err_to_name(init_err));
+            snprintf(req->err_msg, sizeof(req->err_msg), "camera init failed");
+            return ESP_FAIL;
+        }
+    } else {
+        sensor_t *sensor = esp_camera_sensor_get();
+        if (sensor) {
+            sensor->set_framesize(sensor, req->fs);
+            sensor->set_pixformat(sensor, req->fmt);
+        }
+    }
+
+    apply_sensor_settings_from_query_str(req->query);
+
+    for (int i = 0; i < CONFIG_CAPSEQ_DROP_FRAMES; ++i) {
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (fb) {
+            esp_camera_fb_return(fb);
+        }
+    }
+
+    gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 0);
+
+    for (int i = 0; i < req->frame_count; ++i) {
+        gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 1);
+        esp_rom_delay_us(200);
+        gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 0);
+
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) {
+            ESP_LOGW(TAG, "Frame capture failed (%d)", i);
+            continue;
+        }
+
+        int64_t timestamp_ms = esp_timer_get_time() / 1000;
+        char path[256];
+        const char *ext = "session";
+        if (req->fmt == PIXFORMAT_JPEG) ext = "jpg";
+        else if (req->fmt == PIXFORMAT_RGB565) ext = "rgb565";
+        else if (req->fmt == PIXFORMAT_GRAYSCALE) ext = "gray";
+        else if (req->fmt == PIXFORMAT_YUV422) ext = "yuv";
+        snprintf(path, sizeof(path), "%s/%s-%lld.%s", CAPTURE_DIR, req->session, timestamp_ms, ext);
+        ESP_LOGI(TAG, "path: %s", path);
+        FILE *file = fopen(path, "wb");
+        if (!file) {
+            ESP_LOGW(TAG, "Failed to open %s", path);
+            esp_camera_fb_return(fb);
+            continue;
+        }
+        fwrite(fb->buf, 1, fb->len, file);
+        fclose(file);
+
+        esp_camera_fb_return(fb);
+    }
+
+    if (need_reinit) {
+        esp_camera_deinit();
+        gpio_uninstall_isr_service();
+        vTaskDelay(pdMS_TO_TICKS(50));
+        esp_err_t init_err = init_camera();
+        if (init_err != ESP_OK) {
+            ESP_LOGW(TAG, "Restore camera init failed: %s", esp_err_to_name(init_err));
+        }
+    }
+
+    return ESP_OK;
+}
+
+static void capture_task(void *arg)
+{
+    (void)arg;
+    capture_request_t *req = NULL;
+    for (;;) {
+        if (xQueueReceive(s_capture_queue, &req, portMAX_DELAY) == pdTRUE && req) {
+            req->result = run_capture_sequence(req);
+            if (req->done) {
+                xSemaphoreGive(req->done);
+            }
+        }
+    }
+}
+
+static esp_err_t init_capture_task(void)
+{
+    s_capture_queue = xQueueCreate(2, sizeof(capture_request_t *));
+    if (!s_capture_queue) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    BaseType_t task_ok = xTaskCreatePinnedToCore(
+        capture_task,
+        "capture_task",
+        CAPTURE_TASK_STACK_SIZE,
+        NULL,
+        CAPTURE_TASK_PRIORITY,
+        NULL,
+        CAPTURE_TASK_CORE);
+    return (task_ok == pdPASS) ? ESP_OK : ESP_FAIL;
+}
+
 static esp_err_t capture_handler(httpd_req_t *req)
 {
     char query[256] = {0};
@@ -629,86 +724,51 @@ static esp_err_t capture_handler(httpd_req_t *req)
         fmt = parse_pixformat(value);
     }
 
-    s_stream_enabled = false;
-
-    esp_err_t err = send_slave_prepare(query);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Slave prepare failed: %s", esp_err_to_name(err));
+    if (!s_capture_queue) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "capture task not ready");
+        return ESP_FAIL;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(CONFIG_CAPSEQ_SLAVE_PREPARE_DELAY_MS));
-
-    bool need_reinit = (fmt != PIXFORMAT_JPEG);
-    if (need_reinit) {
-        esp_camera_deinit();
-        gpio_uninstall_isr_service();
-        vTaskDelay(pdMS_TO_TICKS(50));
-        esp_err_t init_err = init_camera_with_format(fs, fmt);
-        if (init_err != ESP_OK) {
-            ESP_LOGW(TAG, "Capture camera init failed: %s", esp_err_to_name(init_err));
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "camera init failed");
-            return ESP_FAIL;
-        }
-    } else {
-        sensor_t *sensor = esp_camera_sensor_get();
-        if (sensor) {
-            sensor->set_framesize(sensor, fs);
-            sensor->set_pixformat(sensor, fmt);
-        }
+    capture_request_t *cap = calloc(1, sizeof(*cap));
+    if (!cap) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no mem");
+        return ESP_FAIL;
+    }
+    cap->done = xSemaphoreCreateBinary();
+    if (!cap->done) {
+        free(cap);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no mem");
+        return ESP_FAIL;
     }
 
-    apply_sensor_settings_from_query(req);
+    snprintf(cap->session, sizeof(cap->session), "%s", session);
+    snprintf(cap->query, sizeof(cap->query), "%s", query);
+    cap->frame_count = frame_count;
+    cap->fs = fs;
+    cap->fmt = fmt;
 
-    for (int i = 0; i < CONFIG_CAPSEQ_DROP_FRAMES; ++i) {
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (fb) {
-            esp_camera_fb_return(fb);
-        }
+    if (xQueueSend(s_capture_queue, &cap, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        vSemaphoreDelete(cap->done);
+        free(cap);
+        httpd_resp_send_err(req, HTTPD_409_CONFLICT, "capture busy");
+        return ESP_FAIL;
     }
 
-    gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 0);
-
-    for (int i = 0; i < frame_count; ++i) {
-        gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 1);
-        esp_rom_delay_us(200);
-        gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 0);
-
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (!fb) {
-            ESP_LOGW(TAG, "Frame capture failed (%d)", i);
-            continue;
-        }
-
-        int64_t timestamp_ms = esp_timer_get_time() / 1000;
-        char path[256];
-        const char *ext = "session";
-        if (fmt == PIXFORMAT_JPEG) ext = "jpg";
-        else if (fmt == PIXFORMAT_RGB565) ext = "rgb565";
-        else if (fmt == PIXFORMAT_RAW) ext = "raw";
-        else if (fmt == PIXFORMAT_GRAYSCALE) ext = "gray";
-        else if (fmt == PIXFORMAT_YUV422) ext = "yuv";
-        snprintf(path, sizeof(path), "%s/%s-%lld.%s", CAPTURE_DIR, session, timestamp_ms, ext);
-        ESP_LOGI(TAG, "path: %s", path);
-        FILE *file = fopen(path, "wb");
-        if (!file) {
-            ESP_LOGW(TAG, "Failed to open %s", path);
-            esp_camera_fb_return(fb);
-            continue;
-        }
-        fwrite(fb->buf, 1, fb->len, file);
-        fclose(file);
-
-        esp_camera_fb_return(fb);
+    if (xSemaphoreTake(cap->done, portMAX_DELAY) != pdTRUE) {
+        vSemaphoreDelete(cap->done);
+        free(cap);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "capture timeout");
+        return ESP_FAIL;
     }
 
-    if (need_reinit) {
-        esp_camera_deinit();
-        gpio_uninstall_isr_service();
-        vTaskDelay(pdMS_TO_TICKS(50));
-        esp_err_t init_err = init_camera();
-        if (init_err != ESP_OK) {
-            ESP_LOGW(TAG, "Restore camera init failed: %s", esp_err_to_name(init_err));
-        }
+    esp_err_t result = cap->result;
+    const char *msg = cap->err_msg[0] ? cap->err_msg : "capture failed";
+    vSemaphoreDelete(cap->done);
+    free(cap);
+
+    if (result != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, msg);
+        return ESP_FAIL;
     }
 
     httpd_resp_sendstr(req, "OK");
@@ -896,7 +956,7 @@ static esp_err_t init_camera_with_format(framesize_t fs, pixformat_t pf)
         .pixel_format = pf,
         .frame_size = fs,
         .jpeg_quality = 12,
-        .fb_count = 1,
+        .fb_count = 2,
         .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
         .fb_location = CAMERA_FB_IN_PSRAM,
     };
@@ -933,6 +993,7 @@ static esp_err_t start_webserver(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 9;
+    config.core_id = NET_TASK_CORE;
 
     if (httpd_start(&s_httpd, &config) != ESP_OK) {
         return ESP_FAIL;
@@ -954,12 +1015,6 @@ static esp_err_t start_webserver(void)
         .uri = "/api/sensor",
         .method = HTTP_POST,
         .handler = sensor_handler,
-        .user_ctx = NULL,
-    };
-    httpd_uri_t stream_uri = {
-        .uri = "/stream",
-        .method = HTTP_GET,
-        .handler = stream_handler,
         .user_ctx = NULL,
     };
     httpd_uri_t stream_start_uri = {
@@ -984,11 +1039,33 @@ static esp_err_t start_webserver(void)
     httpd_register_uri_handler(s_httpd, &home_uri);
     httpd_register_uri_handler(s_httpd, &capture_uri);
     httpd_register_uri_handler(s_httpd, &sensor_uri);
-    httpd_register_uri_handler(s_httpd, &stream_uri);
     httpd_register_uri_handler(s_httpd, &stream_start_uri);
     httpd_register_uri_handler(s_httpd, &stream_stop_uri);
     httpd_register_uri_handler(s_httpd, &status_uri);
 
+    return ESP_OK;
+}
+
+static esp_err_t start_stream_server(void)
+{
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = 81;
+    config.ctrl_port = 32769;
+    config.max_uri_handlers = 1;
+    config.core_id = NET_TASK_CORE;
+
+    if (httpd_start(&s_stream_httpd, &config) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    httpd_uri_t stream_uri = {
+        .uri = "/stream",
+        .method = HTTP_GET,
+        .handler = stream_handler,
+        .user_ctx = NULL,
+    };
+
+    httpd_register_uri_handler(s_stream_httpd, &stream_uri);
     return ESP_OK;
 }
 
@@ -1036,9 +1113,17 @@ void app_main(void)
     ESP_ERROR_CHECK(mount_sdcard());
     check_heap_integrity("mount_sdcard");
     init_delay_ms(INIT_DELAY_MS);
+    check_heap_integrity("before init_capture_task");
+    ESP_ERROR_CHECK(init_capture_task());
+    check_heap_integrity("init_capture_task");
+    init_delay_ms(INIT_DELAY_MS);
     check_heap_integrity("before start_webserver");
     ESP_ERROR_CHECK(start_webserver());
     check_heap_integrity("start_webserver");
+    init_delay_ms(INIT_DELAY_MS);
+    check_heap_integrity("before start_stream_server");
+    ESP_ERROR_CHECK(start_stream_server());
+    check_heap_integrity("start_stream_server");
     init_delay_ms(INIT_DELAY_MS);
 
     ESP_LOGI(TAG, "MasterCam ready: http://mastercam-%s.local/", CONFIG_MASTER_ID);
