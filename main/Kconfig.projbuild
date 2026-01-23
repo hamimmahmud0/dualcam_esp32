@@ -24,8 +24,20 @@ config CAPSEQ_DROP_FRAMES
     int "Drop frames to stabilize"
     default 5
 
-config CAPSEQ_GPIO_TRIGGER
-    int "GPIO for slave trigger"
-    default 16
+config CAPSEQ_SYNC_SAFETY_MS
+    int "Sync safety overhead (ms)"
+    default 1000
+
+config CAPSEQ_SYNC_UDP_PINGS
+    int "UDP sync ping count"
+    default 5
+
+config CAPSEQ_SYNC_UDP_PORT
+    int "UDP sync port"
+    default 65
+
+config CAPSEQ_ALLOW_SLAVE_MISSING
+    bool "Allow capture if slave not available"
+    default y
 
 endmenu

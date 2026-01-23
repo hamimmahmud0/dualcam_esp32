@@ -6,10 +6,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <stdlib.h>
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/unistd.h>
+#include <sys/time.h>
 #include <ctype.h>
+#include <errno.h>
 
 #include "esp_psram.h"
 #include "esp_heap_caps.h"
@@ -42,6 +45,9 @@
 #include "sdkconfig.h"
 #include "esp_wifi.h"
 #include "cJSON.h"
+#include "lwip/inet.h"
+#include "lwip/netdb.h"
+#include "lwip/sockets.h"
 
 #define TAG "mastercam"
 
@@ -80,8 +86,23 @@
 #ifndef CONFIG_CAPSEQ_DROP_FRAMES
 #define CONFIG_CAPSEQ_DROP_FRAMES 5
 #endif
-#ifndef CONFIG_CAPSEQ_GPIO_TRIGGER
-#define CONFIG_CAPSEQ_GPIO_TRIGGER 33
+#ifndef CONFIG_CAPSEQ_SYNC_SAFETY_MS
+#define CONFIG_CAPSEQ_SYNC_SAFETY_MS 1000
+#endif
+#ifndef CONFIG_CAPSEQ_SYNC_UDP_PINGS
+#define CONFIG_CAPSEQ_SYNC_UDP_PINGS 5
+#endif
+#ifndef CONFIG_CAPSEQ_SYNC_UDP_PORT
+#define CONFIG_CAPSEQ_SYNC_UDP_PORT 65
+#endif
+#ifndef CONFIG_CAPSEQ_ALLOW_SLAVE_MISSING
+#define CONFIG_CAPSEQ_ALLOW_SLAVE_MISSING 0
+#endif
+
+#if defined(SLAVE_NOT_AVAILAVLE)
+#define CAPSEQ_SLAVE_MISSING_OK 1
+#else
+#define CAPSEQ_SLAVE_MISSING_OK CONFIG_CAPSEQ_ALLOW_SLAVE_MISSING
 #endif
 
 #define INIT_DELAY_MS 200
@@ -103,16 +124,25 @@ typedef struct {
     int frame_count;
     framesize_t fs;
     pixformat_t fmt;
+    int64_t cpu_time_to_start_us;
     esp_err_t result;
     char err_msg[64];
     SemaphoreHandle_t done;
 } capture_request_t;
+
+typedef struct {
+    int64_t trip_time_us;
+    int64_t cpu_disparity_us;
+} capseq_sync_metrics_t;
 
 static esp_err_t init_camera(void);
 static esp_err_t init_camera_with_format(framesize_t fs, pixformat_t pf);
 static esp_err_t init_capture_task(void);
 static void capture_task(void *arg);
 static esp_err_t run_capture_sequence(capture_request_t *req);
+static esp_err_t udp_slave_ready_check(void);
+static esp_err_t udp_sync_metrics(capseq_sync_metrics_t *metrics);
+static esp_err_t udp_slave_start_capture(int64_t start_delay_us);
 
 static void init_delay_ms(uint32_t ms)
 {
@@ -550,6 +580,196 @@ static esp_err_t sensor_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+typedef struct {
+    int sock;
+    struct sockaddr_storage addr;
+    socklen_t addrlen;
+} udp_slave_ctx_t;
+
+static bool parse_int64_payload(const char *buf, int64_t *out_value)
+{
+    if (!buf || !out_value) {
+        return false;
+    }
+    char *end = NULL;
+    errno = 0;
+    int64_t value = strtoll(buf, &end, 10);
+    if (errno != 0 || end == buf) {
+        return false;
+    }
+    *out_value = value;
+    return true;
+}
+
+static esp_err_t udp_open_slave_socket(udp_slave_ctx_t *ctx, int timeout_ms)
+{
+    if (!ctx) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->sock = -1;
+
+    char host[64];
+    snprintf(host, sizeof(host), "slavecam-%s.local", CONFIG_SLAVE_ID);
+    char port[8];
+    snprintf(port, sizeof(port), "%d", CONFIG_CAPSEQ_SYNC_UDP_PORT);
+
+    struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_socktype = SOCK_DGRAM,
+    };
+    struct addrinfo *res = NULL;
+    int err = getaddrinfo(host, port, &hints, &res);
+    if (err != 0 || !res) {
+        ESP_LOGW(TAG, "UDP resolve failed for %s:%s (%d)", host, port, err);
+        return ESP_FAIL;
+    }
+
+    ctx->sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (ctx->sock < 0) {
+        ESP_LOGW(TAG, "UDP socket create failed (%d)", errno);
+        freeaddrinfo(res);
+        return ESP_FAIL;
+    }
+
+    memcpy(&ctx->addr, res->ai_addr, res->ai_addrlen);
+    ctx->addrlen = res->ai_addrlen;
+    freeaddrinfo(res);
+
+    struct timeval tv = {
+        .tv_sec = timeout_ms / 1000,
+        .tv_usec = (timeout_ms % 1000) * 1000,
+    };
+    setsockopt(ctx->sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(ctx->sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    return ESP_OK;
+}
+
+static void udp_close_slave_socket(udp_slave_ctx_t *ctx)
+{
+    if (ctx && ctx->sock >= 0) {
+        close(ctx->sock);
+        ctx->sock = -1;
+    }
+}
+
+static esp_err_t udp_send_and_recv(udp_slave_ctx_t *ctx, const char *payload, int payload_len,
+                                   char *rx_buf, size_t rx_len, int *out_rx_len)
+{
+    if (!ctx || ctx->sock < 0 || !payload || payload_len <= 0 || !rx_buf || rx_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    int sent = sendto(ctx->sock, payload, payload_len, 0,
+                      (struct sockaddr *)&ctx->addr, ctx->addrlen);
+    if (sent < 0) {
+        return ESP_FAIL;
+    }
+    struct sockaddr_storage from;
+    socklen_t from_len = sizeof(from);
+    int received = recvfrom(ctx->sock, rx_buf, rx_len - 1, 0,
+                            (struct sockaddr *)&from, &from_len);
+    if (received < 0) {
+        return ESP_ERR_TIMEOUT;
+    }
+    rx_buf[received] = '\0';
+    if (out_rx_len) {
+        *out_rx_len = received;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t udp_slave_ready_check(void)
+{
+    udp_slave_ctx_t ctx;
+    if (udp_open_slave_socket(&ctx, 300) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    char rx_buf[64];
+    esp_err_t err = udp_send_and_recv(&ctx, "READY", 5, rx_buf, sizeof(rx_buf), NULL);
+    udp_close_slave_socket(&ctx);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (strncmp(rx_buf, "OK", 2) == 0) {
+        return ESP_OK;
+    }
+    return ESP_FAIL;
+}
+
+static esp_err_t udp_sync_metrics(capseq_sync_metrics_t *metrics)
+{
+    if (!metrics) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    metrics->trip_time_us = 0;
+    metrics->cpu_disparity_us = 0;
+
+    udp_slave_ctx_t ctx;
+    if (udp_open_slave_socket(&ctx, 300) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    int64_t rtt_sum = 0;
+    int64_t disparity_sum = 0;
+    int samples = 0;
+
+    for (int i = 0; i < CONFIG_CAPSEQ_SYNC_UDP_PINGS; ++i) {
+        int64_t send_time = esp_timer_get_time();
+        char payload[32];
+        int payload_len = snprintf(payload, sizeof(payload), "%lld", (long long)send_time);
+        char rx_buf[64];
+        esp_err_t err = udp_send_and_recv(&ctx, payload, payload_len, rx_buf, sizeof(rx_buf), NULL);
+        int64_t recv_time = esp_timer_get_time();
+        if (err != ESP_OK) {
+            continue;
+        }
+
+        int64_t slave_time = 0;
+        if (!parse_int64_payload(rx_buf, &slave_time)) {
+            continue;
+        }
+
+        int64_t rtt_us = recv_time - send_time;
+        int64_t master_at_slave = send_time + rtt_us / 2;
+        int64_t disparity_us = master_at_slave - slave_time;
+        rtt_sum += rtt_us;
+        disparity_sum += disparity_us;
+        samples++;
+    }
+
+    udp_close_slave_socket(&ctx);
+    if (samples == 0) {
+        return ESP_FAIL;
+    }
+
+    int64_t avg_rtt = rtt_sum / samples;
+    metrics->trip_time_us = avg_rtt / 2;
+    metrics->cpu_disparity_us = disparity_sum / samples;
+    return ESP_OK;
+}
+
+static esp_err_t udp_slave_start_capture(int64_t start_delay_us)
+{
+    udp_slave_ctx_t ctx;
+    if (udp_open_slave_socket(&ctx, 300) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    char payload[64];
+    int payload_len = snprintf(payload, sizeof(payload), "START %lld", (long long)start_delay_us);
+    char rx_buf[32];
+    esp_err_t err = udp_send_and_recv(&ctx, payload, payload_len, rx_buf, sizeof(rx_buf), NULL);
+    udp_close_slave_socket(&ctx);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (strncmp(rx_buf, "ACK", 3) == 0) {
+        return ESP_OK;
+    }
+    return ESP_FAIL;
+}
+
 static esp_err_t send_slave_prepare(const char *query)
 {
     char url[128];
@@ -615,12 +835,68 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
         }
     }
 
-    gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 0);
+    bool slave_ready = true;
+    esp_err_t sync_err = udp_slave_ready_check();
+    if (sync_err != ESP_OK) {
+        ESP_LOGW(TAG, "Slave ready check failed");
+        if (!CAPSEQ_SLAVE_MISSING_OK) {
+            snprintf(req->err_msg, sizeof(req->err_msg), "slave not ready");
+            return ESP_FAIL;
+        }
+        slave_ready = false;
+    }
+
+    capseq_sync_metrics_t metrics = {0};
+    if (slave_ready) {
+        sync_err = udp_sync_metrics(&metrics);
+        if (sync_err != ESP_OK) {
+            ESP_LOGW(TAG, "UDP sync failed");
+            if (!CAPSEQ_SLAVE_MISSING_OK) {
+                snprintf(req->err_msg, sizeof(req->err_msg), "udp sync failed");
+                return ESP_FAIL;
+            }
+            slave_ready = false;
+        }
+    }
+
+    int64_t safety_overhead_us = (req->cpu_time_to_start_us > 0)
+                                     ? req->cpu_time_to_start_us
+                                     : (int64_t)CONFIG_CAPSEQ_SYNC_SAFETY_MS * 1000;
+    int64_t trip_time_us = slave_ready ? metrics.trip_time_us : 0;
+    int64_t cpu_disparity_us = slave_ready ? metrics.cpu_disparity_us : 0;
+    int64_t slave_start_delay_us = safety_overhead_us;
+    int64_t master_start_delay_us = safety_overhead_us + trip_time_us + cpu_disparity_us;
+    if (master_start_delay_us < 0) {
+        master_start_delay_us = 0;
+    }
+    if (slave_ready) {
+        ESP_LOGI(TAG, "Sync: trip=%lldus disparity=%lldus", (long long)trip_time_us,
+                 (long long)cpu_disparity_us);
+        sync_err = udp_slave_start_capture(slave_start_delay_us);
+        if (sync_err != ESP_OK) {
+            ESP_LOGW(TAG, "Slave start notify failed");
+            if (!CAPSEQ_SLAVE_MISSING_OK) {
+                snprintf(req->err_msg, sizeof(req->err_msg), "slave start failed");
+                return ESP_FAIL;
+            }
+        }
+    }
+
+    int64_t start_time_us = esp_timer_get_time() + master_start_delay_us;
+    while (true) {
+        int64_t now_us = esp_timer_get_time();
+        int64_t remaining_us = start_time_us - now_us;
+        if (remaining_us <= 0) {
+            break;
+        }
+        if (remaining_us > 2000) {
+            vTaskDelay(pdMS_TO_TICKS(remaining_us / 1000));
+        } else {
+            esp_rom_delay_us(100);
+        }
+    }
 
     for (int i = 0; i < req->frame_count; ++i) {
-        gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 1);
-        esp_rom_delay_us(200);
-        gpio_set_level(CONFIG_CAPSEQ_GPIO_TRIGGER, 0);
 
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
@@ -707,6 +983,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
     int frame_count = 0;
     framesize_t fs = DEFAULT_FRAME_SIZE;
     pixformat_t fmt = DEFAULT_PIXEL_FORMAT;
+    int64_t cpu_time_to_start_ms = -1;
 
     if (httpd_query_key_value(query, "session", session, sizeof(session)) != ESP_OK) {
         strncpy(session, "session", sizeof(session) - 1);
@@ -722,6 +999,9 @@ static esp_err_t capture_handler(httpd_req_t *req)
     }
     if (httpd_query_key_value(query, "pixel_format", value, sizeof(value)) == ESP_OK) {
         fmt = parse_pixformat(value);
+    }
+    if (httpd_query_key_value(query, "cpu_time_to_start", value, sizeof(value)) == ESP_OK) {
+        cpu_time_to_start_ms = atoll(value);
     }
 
     if (!s_capture_queue) {
@@ -746,6 +1026,9 @@ static esp_err_t capture_handler(httpd_req_t *req)
     cap->frame_count = frame_count;
     cap->fs = fs;
     cap->fmt = fmt;
+    if (cpu_time_to_start_ms > 0) {
+        cap->cpu_time_to_start_us = cpu_time_to_start_ms * 1000;
+    }
 
     if (xQueueSend(s_capture_queue, &cap, pdMS_TO_TICKS(1000)) != pdTRUE) {
         vSemaphoreDelete(cap->done);
@@ -1082,18 +1365,6 @@ void app_main(void)
         ESP_LOGW(TAG, "SPIFFS (www) not mounted");
     }
     check_heap_integrity("mount_spiffs_www");
-    init_delay_ms(INIT_DELAY_MS);
-
-    gpio_config_t io_conf = {
-        .pin_bit_mask = 1ULL << CONFIG_CAPSEQ_GPIO_TRIGGER,
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    check_heap_integrity("before gpio_config");
-    gpio_config(&io_conf);
-    check_heap_integrity("gpio_config");
     init_delay_ms(INIT_DELAY_MS);
 
     check_heap_integrity("before wifi_init");

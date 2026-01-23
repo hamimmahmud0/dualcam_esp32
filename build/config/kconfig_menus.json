@@ -5347,11 +5347,41 @@
                 "children": [],
                 "depends_on": null,
                 "help": null,
-                "id": "CAPSEQ_GPIO_TRIGGER",
-                "name": "CAPSEQ_GPIO_TRIGGER",
+                "id": "CAPSEQ_SYNC_SAFETY_MS",
+                "name": "CAPSEQ_SYNC_SAFETY_MS",
                 "range": null,
-                "title": "GPIO for slave trigger",
+                "title": "Sync safety overhead (ms)",
                 "type": "int"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": null,
+                "id": "CAPSEQ_SYNC_UDP_PINGS",
+                "name": "CAPSEQ_SYNC_UDP_PINGS",
+                "range": null,
+                "title": "UDP sync ping count",
+                "type": "int"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": null,
+                "id": "CAPSEQ_SYNC_UDP_PORT",
+                "name": "CAPSEQ_SYNC_UDP_PORT",
+                "range": null,
+                "title": "UDP sync port",
+                "type": "int"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": null,
+                "id": "CAPSEQ_ALLOW_SLAVE_MISSING",
+                "name": "CAPSEQ_ALLOW_SLAVE_MISSING",
+                "range": null,
+                "title": "Allow capture if slave not available",
+                "type": "bool"
             }
         ],
         "depends_on": null,

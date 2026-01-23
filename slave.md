@@ -27,7 +27,7 @@ Workspace: `/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex`
 
 Key files:
 - `main/app_main.c` (all logic)
-- `main/Kconfig.projbuild` (menu config: master/slave IDs, Wi-Fi, capture timing, GPIO trigger)
+- `main/Kconfig.projbuild` (menu config: master/slave IDs, Wi-Fi, capture timing, UDP sync)
 - `main/CMakeLists.txt`
 - `partitions.csv` (custom partition table)
 - `sdkconfig` (flash size = 4MB, custom partition table)
@@ -121,31 +121,47 @@ Supported query params:
 - `frame_count` (int)
 - `framesize`
 - `pixel_format`
+- `cpu_time_to_start` (ms, optional; overrides safety overhead)
 - plus any other sensor settings in query string
 
 Flow (master):
 1. Parse query
 2. Stop stream: `s_stream_enabled = false`
-3. Wait until `s_stream_in_progress == false` (up to ~1s)
-4. Send POST to slave at `http://slavecam-<id>.local/capture` with same query string
-5. Delay `CAPSEQ_SLAVE_PREPARE_DELAY_MS` (default 3000)
-6. If capture format != JPEG:
+3. Send POST to slave at `http://slavecam-<id>.local/capture` with same query string
+4. Delay `CAPSEQ_SLAVE_PREPARE_DELAY_MS` (default 3000)
+5. If capture format != JPEG:
    - `esp_camera_deinit()`
    - `gpio_uninstall_isr_service()`
    - delay 50ms
    - `init_camera_with_format(fs, fmt)`
-7. Apply sensor settings from query
-8. Drop `CAPSEQ_DROP_FRAMES`
-9. Trigger GPIO to slave (GPIO16 default)
-10. Capture loop for `frame_count` frames
-11. Save file to `/eMMC/capture/<session>-<timestamp>.<ext>` where ext maps to format
-12. If reinit was done: deinit + uninstall ISR + delay 50ms + `init_camera()` to restore JPEG
+6. Apply sensor settings from query
+7. Drop `CAPSEQ_DROP_FRAMES`
+8. Ask slave over UDP (port 65) if camera init + drop frames succeeded
+   - If failed and `CAPSEQ_ALLOW_SLAVE_MISSING` (or `SLAVE_NOT_AVAILAVLE`) is enabled, log and continue
+   - Otherwise abort capture
+9. Sync clocks over UDP:
+   - Master sends multiple UDP pings with its CPU time (microseconds)
+   - Slave replies with its CPU time (microseconds)
+   - Master computes `trip_time = avg(rtt) / 2`
+   - Master computes `cpu_disparity = avg((master_send + rtt/2) - slave_time)`
+10. Compute start delays:
+   - `slave_start_delay_us = safety_overhead_us`
+   - `master_start_delay_us = trip_time_us + cpu_disparity_us + safety_overhead_us`
+11. Send UDP `START <slave_start_delay_us>` to slave
+12. Wait until `master_start_delay_us`, then capture loop for `frame_count` frames
+13. Save file to `/eMMC/capture/<session>-<timestamp>.<ext>` where ext maps to format
+14. If reinit was done: deinit + uninstall ISR + delay 50ms + `init_camera()` to restore JPEG
 
 File extensions used:
 - JPEG -> `.jpg`
 - RGB565 -> `.rgb565`
 - GRAYSCALE -> `.gray`
 - YUV422 -> `.yuv`
+
+UDP sync messages (port 65):
+- `READY` -> slave replies `OK` when camera init + drop frames complete
+- `<master_time_us>` -> slave replies with `<slave_time_us>`
+- `START <delay_us>` -> slave replies `ACK` and starts capture after `delay_us`
 
 **GPIO ISR conflict fix**: added `gpio_uninstall_isr_service()` before each reinit to avoid `gpio_install_isr_service already installed` warnings.
 
@@ -280,7 +296,7 @@ Slave likely doesn’t need full UI. Consider a stripped-down UI or disable SPIF
 
 The slave should:
 - Expose a `/capture` endpoint that accepts the same parameters (framesize, pixel_format, etc.).
-- On `/capture` request, configure camera and **wait for GPIO sync trigger** (from master) before capturing.
+- On `/capture` request, configure camera and **wait for UDP sync** (from master) before capturing.
 - Likely **no stream** needed; or if present, must always use JPEG.
 - Save files with session/timestamp using same naming or separate directory (e.g., `/eMMC/capture_slave/`).
 
@@ -290,23 +306,26 @@ Suggested slave flow on `/capture`:
 3. If pixformat != JPEG -> deinit/reinit with requested format
 4. Apply sensor settings
 5. Drop frames
-6. **Wait on GPIO trigger** (e.g., interrupt or polling on GPIO16 input)
+6. **Wait on UDP start command** (port 65) with the start delay
 7. Capture N frames, save
 8. Restore JPEG init if needed
 
-GPIO trigger should be configured as **input** on slave, since master drives the line.
+UDP sync should be implemented as a small UDP server on port 65.
 
 ---
 
-## 17) GPIO Sync
+## 17) UDP Sync
 
 Master:
-- GPIO16 is output for trigger
-- Pulses high for ~200us before capture
+- Sends multiple UDP pings to slave on port 65 with payload = master CPU time (microseconds)
+- Computes `trip_time = avg(rtt) / 2`
+- Computes `cpu_disparity = avg((master_send + rtt/2) - slave_time)`
+- Sends `START <delay_us>` to slave
 
 Slave:
-- GPIO16 should be configured input, likely with pulldown
-- You can implement a simple wait loop on `gpio_get_level()` or use interrupt.
+- Replies to each numeric ping with its CPU time (microseconds)
+- Replies `OK` to `READY` when capture prep is complete
+- Accepts `START <delay_us>` and begins capture after the delay
 
 ---
 
@@ -383,7 +402,7 @@ Warnings about GPIO ISR were fixed by uninstalling ISR between reinit cycles.
 
 - Use same pin map and camera config helper
 - Implement `/capture` endpoint that can be called by master
-- Wait for GPIO trigger for synchronized capture
+- Wait for UDP sync for synchronized capture
 - Support pixformat reinit for non-JPEG
 - Use 4MB flash config and partition table
 
