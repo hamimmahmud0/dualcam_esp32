@@ -261,19 +261,30 @@
 
     <section class="card" style="grid-column: 1 / -1;">
       <h3>Live View</h3>
-      <img id="stream" class="stream" alt="Live stream" />
+      <div class="row">
+        <div>
+          <span class="pill">Master</span>
+          <img id="stream" class="stream" alt="Master stream" />
+        </div>
+        <div>
+          <span class="pill">Slave</span>
+          <img id="slaveStream" class="stream" alt="Slave stream" />
+        </div>
+      </div>
       <div class="status" id="liveStatus">Status: --</div>
     </section>
   </main>
 
   <script>
     const streamImg = document.getElementById('stream');
+    const slaveStreamImg = document.getElementById('slaveStream');
     const streamStatus = document.getElementById('streamStatus');
     const captureStatus = document.getElementById('captureStatus');
     const sensorStatus = document.getElementById('sensorStatus');
     const presetStatus = document.getElementById('presetStatus');
     const liveStatus = document.getElementById('liveStatus');
-    const streamUrl = `${location.protocol}//${location.hostname}:81/stream`;
+    const masterStreamUrl = `${location.protocol}//${location.hostname}:81/stream`;
+    let slaveStreamUrl = '';
 
     const presets = {
       neutral: { brightness: 0, contrast: 0, saturation: 0, special_effect: 0, awb: 1, exposure_ctrl: 1 },
@@ -291,13 +302,17 @@
 
     document.getElementById('startStream').onclick = async () => {
       await fetch('/api/stream/start');
-      streamImg.src = streamUrl;
+      streamImg.src = masterStreamUrl;
+      if (slaveStreamUrl) {
+        slaveStreamImg.src = slaveStreamUrl;
+      }
       streamStatus.textContent = 'Streaming...';
     };
 
     document.getElementById('stopStream').onclick = async () => {
       await fetch('/api/stream/stop');
       streamImg.removeAttribute('src');
+      slaveStreamImg.removeAttribute('src');
       streamStatus.textContent = 'Stream stopped';
     };
 
@@ -334,7 +349,19 @@
         const res = await fetch('/api/status');
         if (!res.ok) return;
         const data = await res.json();
-        liveStatus.textContent = `Status: stream ${data.stream_enabled ? 'on' : 'off'} | heap ${data.free_heap} | uptime ${Math.round(data.uptime_ms / 1000)}s`;
+        if (data.slave_id && !slaveStreamUrl) {
+          slaveStreamUrl = `${location.protocol}//slavecam-${data.slave_id}.local:81/stream`;
+        }
+        if (data.stream_enabled) {
+          if (!streamImg.getAttribute('src')) {
+            streamImg.src = masterStreamUrl;
+          }
+          if (slaveStreamUrl && !slaveStreamImg.getAttribute('src')) {
+            slaveStreamImg.src = slaveStreamUrl;
+          }
+        }
+        const slaveLabel = data.slave_id ? ` | slave ${data.slave_id}` : '';
+        liveStatus.textContent = `Status: stream ${data.stream_enabled ? 'on' : 'off'}${slaveLabel} | heap ${data.free_heap} | uptime ${Math.round(data.uptime_ms / 1000)}s`;
       } catch (err) {
         liveStatus.textContent = 'Status: offline';
       }

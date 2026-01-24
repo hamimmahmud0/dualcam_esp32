@@ -26,7 +26,8 @@ This document summarizes the current “master” implementation and all relevan
 Workspace: `/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex`
 
 Key files:
-- `main/app_main.c` (all logic)
+- `main/app_main.c` (master logic)
+- `main/app_main_slave.c` (slave logic)
 - `main/Kconfig.projbuild` (menu config: master/slave IDs, Wi-Fi, capture timing, UDP sync)
 - `main/CMakeLists.txt`
 - `partitions.csv` (custom partition table)
@@ -139,6 +140,7 @@ Flow (master):
 8. Ask slave over UDP (port 65) if camera init + drop frames succeeded
    - If failed and `CAPSEQ_ALLOW_SLAVE_MISSING` (or `SLAVE_NOT_AVAILAVLE`) is enabled, log and continue
    - Otherwise abort capture
+   - Master polls `READY` until timeout (`CAPSEQ_SLAVE_READY_TIMEOUT_MS`)
 9. Sync clocks over UDP:
    - Master sends multiple UDP pings with its CPU time (microseconds)
    - Slave replies with its CPU time (microseconds)
@@ -173,8 +175,10 @@ UDP sync messages (port 65):
 - `stream_handler` forces JPEG before loop to avoid mismatch.
 - `/api/stream/start` sets `s_stream_enabled = true`
 - `/api/stream/stop` sets `s_stream_enabled = false`
+- Master `/api/stream/start|stop` also triggers the slave endpoints so a single UI button controls both.
+- Master UI embeds slave stream at `http://slavecam-<id>.local:81/stream`.
 
-**For slave**: streaming might be optional. If you keep streaming, always enforce JPEG.
+**For slave**: streaming is supported on port 81; always enforce JPEG.
 
 ---
 
@@ -297,8 +301,11 @@ Slave likely doesn’t need full UI. Consider a stripped-down UI or disable SPIF
 The slave should:
 - Expose a `/capture` endpoint that accepts the same parameters (framesize, pixel_format, etc.).
 - On `/capture` request, configure camera and **wait for UDP sync** (from master) before capturing.
-- Likely **no stream** needed; or if present, must always use JPEG.
+- Streaming is supported; always enforce JPEG for `/stream`.
 - Save files with session/timestamp using same naming or separate directory (e.g., `/eMMC/capture_slave/`).
+
+Build switch:
+- Enable `APP_ROLE_SLAVE` in menuconfig to build `main/app_main_slave.c`.
 
 Suggested slave flow on `/capture`:
 1. Parse request

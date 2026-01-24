@@ -8,6 +8,12 @@ config SLAVE_ID
     string "Slave device ID (6 hex digits)"
     default "000000"
 
+config APP_ROLE_SLAVE
+    bool "Build slave firmware"
+    default n
+    help
+        Enable to build the slave application (UDP sync responder + streaming).
+
 config WIFI_SSID
     string "WiFi SSID"
     default ""
@@ -35,6 +41,22 @@ config CAPSEQ_SYNC_UDP_PINGS
 config CAPSEQ_SYNC_UDP_PORT
     int "UDP sync port"
     default 65
+
+config CAPSEQ_SLAVE_READY_TIMEOUT_MS
+    int "Slave UDP ready timeout (ms)"
+    default 5000
+
+config CAPSEQ_SLAVE_READY_POLL_MS
+    int "Slave UDP ready poll interval (ms)"
+    default 200
+
+config CAPSEQ_SYNC_START_RETRIES
+    int "UDP start retries"
+    default 3
+
+config CAPSEQ_SYNC_START_RETRY_DELAY_MS
+    int "UDP start retry delay (ms)"
+    default 100
 
 config CAPSEQ_ALLOW_SLAVE_MISSING
     bool "Allow capture if slave not available"

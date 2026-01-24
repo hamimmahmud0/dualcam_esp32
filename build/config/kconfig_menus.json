@@ -5306,6 +5306,16 @@
             {
                 "children": [],
                 "depends_on": null,
+                "help": "Enable to build the slave application (UDP sync responder + streaming).",
+                "id": "APP_ROLE_SLAVE",
+                "name": "APP_ROLE_SLAVE",
+                "range": null,
+                "title": "Build slave firmware",
+                "type": "bool"
+            },
+            {
+                "children": [],
+                "depends_on": null,
                 "help": null,
                 "id": "WIFI_SSID",
                 "name": "WIFI_SSID",
@@ -5371,6 +5381,46 @@
                 "name": "CAPSEQ_SYNC_UDP_PORT",
                 "range": null,
                 "title": "UDP sync port",
+                "type": "int"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": null,
+                "id": "CAPSEQ_SLAVE_READY_TIMEOUT_MS",
+                "name": "CAPSEQ_SLAVE_READY_TIMEOUT_MS",
+                "range": null,
+                "title": "Slave UDP ready timeout (ms)",
+                "type": "int"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": null,
+                "id": "CAPSEQ_SLAVE_READY_POLL_MS",
+                "name": "CAPSEQ_SLAVE_READY_POLL_MS",
+                "range": null,
+                "title": "Slave UDP ready poll interval (ms)",
+                "type": "int"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": null,
+                "id": "CAPSEQ_SYNC_START_RETRIES",
+                "name": "CAPSEQ_SYNC_START_RETRIES",
+                "range": null,
+                "title": "UDP start retries",
+                "type": "int"
+            },
+            {
+                "children": [],
+                "depends_on": null,
+                "help": null,
+                "id": "CAPSEQ_SYNC_START_RETRY_DELAY_MS",
+                "name": "CAPSEQ_SYNC_START_RETRY_DELAY_MS",
+                "range": null,
+                "title": "UDP start retry delay (ms)",
                 "type": "int"
             },
             {

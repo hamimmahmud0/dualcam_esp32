@@ -98,6 +98,18 @@
 #ifndef CONFIG_CAPSEQ_ALLOW_SLAVE_MISSING
 #define CONFIG_CAPSEQ_ALLOW_SLAVE_MISSING 0
 #endif
+#ifndef CONFIG_CAPSEQ_SLAVE_READY_TIMEOUT_MS
+#define CONFIG_CAPSEQ_SLAVE_READY_TIMEOUT_MS 5000
+#endif
+#ifndef CONFIG_CAPSEQ_SLAVE_READY_POLL_MS
+#define CONFIG_CAPSEQ_SLAVE_READY_POLL_MS 200
+#endif
+#ifndef CONFIG_CAPSEQ_SYNC_START_RETRIES
+#define CONFIG_CAPSEQ_SYNC_START_RETRIES 3
+#endif
+#ifndef CONFIG_CAPSEQ_SYNC_START_RETRY_DELAY_MS
+#define CONFIG_CAPSEQ_SYNC_START_RETRY_DELAY_MS 100
+#endif
 
 #if defined(SLAVE_NOT_AVAILAVLE)
 #define CAPSEQ_SLAVE_MISSING_OK 1
@@ -140,6 +152,9 @@ static esp_err_t init_camera_with_format(framesize_t fs, pixformat_t pf);
 static esp_err_t init_capture_task(void);
 static void capture_task(void *arg);
 static esp_err_t run_capture_sequence(capture_request_t *req);
+static esp_err_t send_slave_stream_cmd(const char *path);
+static esp_err_t udp_slave_wait_ready(int timeout_ms, int poll_ms);
+static esp_err_t udp_slave_start_with_retry(int64_t start_delay_us);
 static esp_err_t udp_slave_ready_check(void);
 static esp_err_t udp_sync_metrics(capseq_sync_metrics_t *metrics);
 static esp_err_t udp_slave_start_capture(int64_t start_delay_us);
@@ -422,7 +437,9 @@ static esp_err_t home_handler(httpd_req_t *req)
         "</form>"
         "</div>"
         "<div class='card'>"
-        "<h3>Stream</h3><img id='stream' style='width:100%;max-width:640px;' />"
+        "<h3>Streams</h3>"
+        "<p>Master</p><img id='stream' style='width:100%;max-width:640px;' />"
+        "<p>Slave</p><img id='slaveStream' style='width:100%;max-width:640px;' />"
         "</div>"
         "</section>"
         "<script>"
@@ -431,7 +448,9 @@ static esp_err_t home_handler(httpd_req_t *req)
         "document.getElementById('captureForm').onsubmit=function(e){e.preventDefault();"
         "const params=new URLSearchParams(new FormData(this));fetch('/api/capture?'+params.toString());};"
         "const streamUrl=location.protocol+'//'+location.hostname+':81/stream';"
+        "const slaveUrl=location.protocol+'//slavecam-" CONFIG_SLAVE_ID ".local:81/stream';"
         "document.getElementById('stream').src=streamUrl;"
+        "document.getElementById('slaveStream').src=slaveUrl;"
         "</script></body></html>";
 
     httpd_resp_set_type(req, "text/html");
@@ -442,6 +461,10 @@ static esp_err_t home_handler(httpd_req_t *req)
 static esp_err_t stream_start_handler(httpd_req_t *req)
 {
     s_stream_enabled = true;
+    esp_err_t err = send_slave_stream_cmd("/api/stream/start");
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Slave stream start failed: %s", esp_err_to_name(err));
+    }
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -454,6 +477,10 @@ static esp_err_t stream_stop_handler(httpd_req_t *req)
         httpd_sess_trigger_close(s_stream_httpd, s_stream_fd);
         s_stream_fd = -1;
     }
+    esp_err_t err = send_slave_stream_cmd("/api/stream/stop");
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Slave stream stop failed: %s", esp_err_to_name(err));
+    }
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -462,13 +489,16 @@ static esp_err_t status_handler(httpd_req_t *req)
 {
     int64_t uptime_ms = esp_timer_get_time() / 1000;
     uint32_t free_heap = esp_get_free_heap_size();
-    char response[256];
+    char response[320];
     snprintf(response, sizeof(response),
-             "{\"stream_enabled\":%s,\"stream_active\":%s,\"uptime_ms\":%lld,\"free_heap\":%" PRIu32 "}",
+             "{\"stream_enabled\":%s,\"stream_active\":%s,\"uptime_ms\":%lld,\"free_heap\":%" PRIu32
+             ",\"slave_id\":\"%s\",\"master_id\":\"%s\"}",
              s_stream_enabled ? "true" : "false",
              s_stream_in_progress ? "true" : "false",
              uptime_ms,
-             free_heap);
+             free_heap,
+             CONFIG_SLAVE_ID,
+             CONFIG_MASTER_ID);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
@@ -697,6 +727,20 @@ static esp_err_t udp_slave_ready_check(void)
     return ESP_FAIL;
 }
 
+static esp_err_t udp_slave_wait_ready(int timeout_ms, int poll_ms)
+{
+    int elapsed = 0;
+    while (elapsed <= timeout_ms) {
+        esp_err_t err = udp_slave_ready_check();
+        if (err == ESP_OK) {
+            return ESP_OK;
+        }
+        vTaskDelay(pdMS_TO_TICKS(poll_ms));
+        elapsed += poll_ms;
+    }
+    return ESP_ERR_TIMEOUT;
+}
+
 static esp_err_t udp_sync_metrics(capseq_sync_metrics_t *metrics)
 {
     if (!metrics) {
@@ -770,10 +814,22 @@ static esp_err_t udp_slave_start_capture(int64_t start_delay_us)
     return ESP_FAIL;
 }
 
+static esp_err_t udp_slave_start_with_retry(int64_t start_delay_us)
+{
+    for (int attempt = 0; attempt < CONFIG_CAPSEQ_SYNC_START_RETRIES; ++attempt) {
+        esp_err_t err = udp_slave_start_capture(start_delay_us);
+        if (err == ESP_OK) {
+            return ESP_OK;
+        }
+        vTaskDelay(pdMS_TO_TICKS(CONFIG_CAPSEQ_SYNC_START_RETRY_DELAY_MS));
+    }
+    return ESP_FAIL;
+}
+
 static esp_err_t send_slave_prepare(const char *query)
 {
     char url[128];
-    snprintf(url, sizeof(url), "http://slavecam-%s.local/capture", CONFIG_SLAVE_ID);
+    snprintf(url, sizeof(url), "http://slavecam-%s.local/api/capture", CONFIG_SLAVE_ID);
 
     esp_http_client_config_t cfg = {
         .url = url,
@@ -786,6 +842,25 @@ static esp_err_t send_slave_prepare(const char *query)
         esp_http_client_set_post_field(client, query, strlen(query));
     }
 
+    esp_err_t err = esp_http_client_perform(client);
+    esp_http_client_cleanup(client);
+    return err;
+}
+
+static esp_err_t send_slave_stream_cmd(const char *path)
+{
+    if (!path) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char url[128];
+    snprintf(url, sizeof(url), "http://slavecam-%s.local%s", CONFIG_SLAVE_ID, path);
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .timeout_ms = 1000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    esp_http_client_set_method(client, HTTP_METHOD_GET);
     esp_err_t err = esp_http_client_perform(client);
     esp_http_client_cleanup(client);
     return err;
@@ -836,7 +911,8 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
     }
 
     bool slave_ready = true;
-    esp_err_t sync_err = udp_slave_ready_check();
+    esp_err_t sync_err = udp_slave_wait_ready(CONFIG_CAPSEQ_SLAVE_READY_TIMEOUT_MS,
+                                               CONFIG_CAPSEQ_SLAVE_READY_POLL_MS);
     if (sync_err != ESP_OK) {
         ESP_LOGW(TAG, "Slave ready check failed");
         if (!CAPSEQ_SLAVE_MISSING_OK) {
@@ -872,7 +948,7 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
     if (slave_ready) {
         ESP_LOGI(TAG, "Sync: trip=%lldus disparity=%lldus", (long long)trip_time_us,
                  (long long)cpu_disparity_us);
-        sync_err = udp_slave_start_capture(slave_start_delay_us);
+        sync_err = udp_slave_start_with_retry(slave_start_delay_us);
         if (sync_err != ESP_OK) {
             ESP_LOGW(TAG, "Slave start notify failed");
             if (!CAPSEQ_SLAVE_MISSING_OK) {
@@ -896,6 +972,7 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
         }
     }
 
+    int64_t prev_timestamp_ms = -1;
     for (int i = 0; i < req->frame_count; ++i) {
 
         camera_fb_t *fb = esp_camera_fb_get();
@@ -912,7 +989,9 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
         else if (req->fmt == PIXFORMAT_GRAYSCALE) ext = "gray";
         else if (req->fmt == PIXFORMAT_YUV422) ext = "yuv";
         snprintf(path, sizeof(path), "%s/%s-%lld.%s", CAPTURE_DIR, req->session, timestamp_ms, ext);
-        ESP_LOGI(TAG, "path: %s", path);
+        int64_t delta_ms = (prev_timestamp_ms >= 0) ? (timestamp_ms - prev_timestamp_ms) : 0;
+        ESP_LOGI(TAG, "path: %s (frame %d/%d, dt=%lldms)", path, i + 1, req->frame_count,
+                 (long long)delta_ms);
         FILE *file = fopen(path, "wb");
         if (!file) {
             ESP_LOGW(TAG, "Failed to open %s", path);
@@ -923,6 +1002,7 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
         fclose(file);
 
         esp_camera_fb_return(fb);
+        prev_timestamp_ms = timestamp_ms;
     }
 
     if (need_reinit) {
