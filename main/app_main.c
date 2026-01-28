@@ -54,7 +54,7 @@
 #define STREAM_BOUNDARY "123456789000000000000987654321"
 #define STREAM_CONTENT_TYPE "multipart/x-mixed-replace;boundary=" STREAM_BOUNDARY
 
-#define DEFAULT_FRAME_SIZE FRAMESIZE_SVGA
+#define DEFAULT_FRAME_SIZE FRAMESIZE_VGA
 #define DEFAULT_PIXEL_FORMAT PIXFORMAT_JPEG
 
 #define CAPTURE_DIR "/eMMC/capture"
@@ -119,6 +119,8 @@
 
 #define INIT_DELAY_MS 200
 #define WIFI_POST_INIT_DELAY_MS 500
+#define CAMERA_PWDN_PIN 32
+#define CAMERA_RESET_DELAY_MS 20
 
 static httpd_handle_t s_httpd = NULL;
 static httpd_handle_t s_stream_httpd = NULL;
@@ -158,6 +160,40 @@ static esp_err_t udp_slave_start_with_retry(int64_t start_delay_us);
 static esp_err_t udp_slave_ready_check(void);
 static esp_err_t udp_sync_metrics(capseq_sync_metrics_t *metrics);
 static esp_err_t udp_slave_start_capture(int64_t start_delay_us);
+
+static void camera_power_cycle(void)
+{
+    if (CAMERA_PWDN_PIN < 0) {
+        return;
+    }
+    gpio_config_t io_conf = {
+        .pin_bit_mask = 1ULL << CAMERA_PWDN_PIN,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+    gpio_set_level(CAMERA_PWDN_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(CAMERA_RESET_DELAY_MS));
+    gpio_set_level(CAMERA_PWDN_PIN, 0);
+    vTaskDelay(pdMS_TO_TICKS(CAMERA_RESET_DELAY_MS));
+}
+
+static void stop_stream_and_wait(uint32_t timeout_ms)
+{
+    s_stream_enabled = false;
+    s_stream_stop_requested = true;
+    if (s_stream_httpd != NULL && s_stream_fd >= 0) {
+        httpd_sess_trigger_close(s_stream_httpd, s_stream_fd);
+        s_stream_fd = -1;
+    }
+    uint32_t waited_ms = 0;
+    while (s_stream_in_progress && waited_ms < timeout_ms) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        waited_ms += 20;
+    }
+}
 
 static void init_delay_ms(uint32_t ms)
 {
@@ -873,7 +909,7 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
     }
 
     req->err_msg[0] = '\0';
-    s_stream_enabled = false;
+    stop_stream_and_wait(2000);
 
     esp_err_t err = send_slave_prepare(req->query[0] ? req->query : NULL);
     if (err != ESP_OK) {
@@ -882,23 +918,16 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
 
     vTaskDelay(pdMS_TO_TICKS(CONFIG_CAPSEQ_SLAVE_PREPARE_DELAY_MS));
 
-    bool need_reinit = (req->fmt != PIXFORMAT_JPEG);
-    if (need_reinit) {
-        esp_camera_deinit();
-        gpio_uninstall_isr_service();
-        vTaskDelay(pdMS_TO_TICKS(50));
-        esp_err_t init_err = init_camera_with_format(req->fs, req->fmt);
-        if (init_err != ESP_OK) {
-            ESP_LOGW(TAG, "Capture camera init failed: %s", esp_err_to_name(init_err));
-            snprintf(req->err_msg, sizeof(req->err_msg), "camera init failed");
-            return ESP_FAIL;
-        }
-    } else {
-        sensor_t *sensor = esp_camera_sensor_get();
-        if (sensor) {
-            sensor->set_framesize(sensor, req->fs);
-            sensor->set_pixformat(sensor, req->fmt);
-        }
+    bool need_reinit = true;
+    esp_camera_deinit();
+    gpio_uninstall_isr_service();
+    camera_power_cycle();
+    vTaskDelay(pdMS_TO_TICKS(200));
+    esp_err_t init_err = init_camera_with_format(req->fs, req->fmt);
+    if (init_err != ESP_OK) {
+        ESP_LOGW(TAG, "Capture camera init failed: %s", esp_err_to_name(init_err));
+        snprintf(req->err_msg, sizeof(req->err_msg), "camera init failed");
+        return ESP_FAIL;
     }
 
     apply_sensor_settings_from_query_str(req->query);
@@ -1008,7 +1037,8 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
     if (need_reinit) {
         esp_camera_deinit();
         gpio_uninstall_isr_service();
-        vTaskDelay(pdMS_TO_TICKS(50));
+        camera_power_cycle();
+        vTaskDelay(pdMS_TO_TICKS(200));
         esp_err_t init_err = init_camera();
         if (init_err != ESP_OK) {
             ESP_LOGW(TAG, "Restore camera init failed: %s", esp_err_to_name(init_err));
@@ -1246,11 +1276,11 @@ static esp_err_t init_camera(void)
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
         .pixel_format = PIXFORMAT_JPEG,
-        .frame_size = FRAMESIZE_VGA,
+        .frame_size = DEFAULT_FRAME_SIZE,
         .jpeg_quality = 12,
         .fb_count = 1,
         .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
-        //.fb_location = CAMERA_FB_IN_PSRAM,
+        .fb_location = CAMERA_FB_IN_DRAM,
     };
 
     check_heap_integrity("before psram test");

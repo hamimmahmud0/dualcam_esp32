@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "hello_world",
-    "project_version":    "89ca455-dirty",
+    "project_version":    "53bd639-dirty",
     "project_path":       "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex",
     "idf_path":           "/home/hamim-mahmud/esp/esp-idf",
     "build_dir":          "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build",
