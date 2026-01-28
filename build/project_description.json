@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "hello_world",
-    "project_version":    "852f1e6-dirty",
+    "project_version":    "89ca455-dirty",
     "project_path":       "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex",
     "idf_path":           "/home/hamim-mahmud/esp/esp-idf",
     "build_dir":          "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build",
@@ -910,7 +910,7 @@
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "file": "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/esp-idf/heap/libheap.a",
-            "sources": [ "/home/hamim-mahmud/esp/esp-idf/components/heap/heap_caps_base.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/heap_caps.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/heap_caps_init.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/multi_heap.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/tlsf/tlsf.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/multi_heap_poisoning.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/port/memory_layout_utils.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/port/esp32/memory_layout.c" ],
+            "sources": [ "/home/hamim-mahmud/esp/esp-idf/components/heap/heap_caps_base.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/heap_caps.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/heap_caps_init.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/multi_heap.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/tlsf/tlsf.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/port/memory_layout_utils.c", "/home/hamim-mahmud/esp/esp-idf/components/heap/port/esp32/memory_layout.c" ],
             "include_dirs": [ "include", "tlsf" ]
         },
         "http_parser": {
@@ -985,7 +985,7 @@
             "managed_reqs": [],
             "managed_priv_reqs": [ "espressif__esp32-camera", "espressif__mdns" ],
             "file": "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/build/esp-idf/main/libmain.a",
-            "sources": [ "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/main/app_main.c" ],
+            "sources": [ "/home/hamim-mahmud/esp/esp-idf/hamim/new_from_codex/main/app_main_slave.c" ],
             "include_dirs": []
         },
         "mbedtls": {
