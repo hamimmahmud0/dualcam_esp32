@@ -14,6 +14,13 @@ config APP_ROLE_SLAVE
     help
         Enable to build the slave application (UDP sync responder + streaming).
 
+config APP_ROLE_CAPTURE_ONLY
+    bool "Build capture-only firmware"
+    default n
+    help
+        Enable to build the capture-only application (no Wi-Fi/mDNS/web server).
+        This formats the SD card at boot and runs a local capture sequence.
+
 config WIFI_SSID
     string "WiFi SSID"
     default ""

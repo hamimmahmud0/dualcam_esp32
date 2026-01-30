@@ -1,4 +1,6 @@
-if(CONFIG_APP_ROLE_SLAVE)
+if(CONFIG_APP_ROLE_CAPTURE_ONLY)
+    set(APP_SRCS "app_main_capture_only.c")
+elseif(CONFIG_APP_ROLE_SLAVE)
     set(APP_SRCS "app_main_slave.c")
 else()
     set(APP_SRCS "app_main.c")

@@ -829,12 +829,13 @@ static esp_err_t run_slave_capture(const slave_capture_request_t *req, int64_t s
         esp_camera_fb_return(fb);
         prev_timestamp_ms = timestamp_ms;
     }
-
+    
+    vTaskDelay(pdMS_TO_TICKS(500));
     if (req->need_reinit) {
         esp_camera_deinit();
         gpio_uninstall_isr_service();
         camera_power_cycle();
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(500));
         esp_err_t init_err = init_camera();
         if (init_err != ESP_OK) {
             ESP_LOGW(TAG, "Restore camera init failed: %s", esp_err_to_name(init_err));
