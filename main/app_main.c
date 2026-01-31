@@ -49,7 +49,11 @@
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
 
+#define IGNORE_SLAVE
+
 #define TAG "mastercam"
+
+
 
 #define STREAM_BOUNDARY "123456789000000000000987654321"
 #define STREAM_CONTENT_TYPE "multipart/x-mixed-replace;boundary=" STREAM_BOUNDARY
@@ -864,6 +868,9 @@ static esp_err_t udp_slave_start_with_retry(int64_t start_delay_us)
 
 static esp_err_t send_slave_prepare(const char *query)
 {
+    #ifdef IGNORE_SLAVE
+    return ESP_OK;
+    #endif
     char url[128];
     snprintf(url, sizeof(url), "http://slavecam-%s.local/api/capture", CONFIG_SLAVE_ID);
 
@@ -940,6 +947,7 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
     }
 
     bool slave_ready = true;
+    #ifndef IGNORE_SLAVE
     esp_err_t sync_err = udp_slave_wait_ready(CONFIG_CAPSEQ_SLAVE_READY_TIMEOUT_MS,
                                                CONFIG_CAPSEQ_SLAVE_READY_POLL_MS);
     if (sync_err != ESP_OK) {
@@ -952,6 +960,7 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
     }
 
     capseq_sync_metrics_t metrics = {0};
+    
     if (slave_ready) {
         sync_err = udp_sync_metrics(&metrics);
         if (sync_err != ESP_OK) {
@@ -963,7 +972,7 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
             slave_ready = false;
         }
     }
-
+    
     int64_t safety_overhead_us = (req->cpu_time_to_start_us > 0)
                                      ? req->cpu_time_to_start_us
                                      : (int64_t)CONFIG_CAPSEQ_SYNC_SAFETY_MS * 1000;
@@ -986,8 +995,11 @@ static esp_err_t run_capture_sequence(capture_request_t *req)
             }
         }
     }
-
-    int64_t start_time_us = esp_timer_get_time() + master_start_delay_us;
+    #endif
+    int64_t start_time_us = esp_timer_get_time();
+    #ifndef IGNORE_SLAVE
+    start_time_us+= master_start_delay_us;
+    #endif
     while (true) {
         int64_t now_us = esp_timer_get_time();
         int64_t remaining_us = start_time_us - now_us;

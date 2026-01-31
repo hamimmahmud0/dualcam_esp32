@@ -21,6 +21,56 @@ config APP_ROLE_CAPTURE_ONLY
         Enable to build the capture-only application (no Wi-Fi/mDNS/web server).
         This formats the SD card at boot and runs a local capture sequence.
 
+config APP_ROLE_CAPTURE_ONLY_QVGA
+    bool "Build capture-only firmware (QVGA)"
+    default n
+    help
+        Enable to build the capture-only QVGA application (no Wi-Fi/mDNS/web server).
+        This formats the SD card at boot and runs a local capture sequence.
+
+config APP_ROLE_UDP_RGB565
+    bool "Build UDP RGB565 streaming firmware"
+    default n
+    help
+        Enable to build the UDP RGB565 streaming application (Wi-Fi + mDNS only).
+        Streams VGA RGB565 frames over UDP when a client sends START to port 55.
+
+config ENABLE_LOGGING
+    bool "Enable logging"
+    default y
+    help
+        Enable ESP_LOG* output. Disable to reduce log noise and overhead.
+
+config CAPTURE_FLUSH_EVERY_N_FRAMES
+    int "Flush eMMC every N frames (0 to disable)"
+    default 1
+    range 0 1000
+    help
+        Flush and fsync the capture file every N frames to reduce data loss risk.
+        Set to 0 to disable periodic flushes for higher throughput.
+
+config CAPTURE_MANUAL_EXPOSURE
+    bool "Capture-only: manual exposure (disable AEC)"
+    default n
+    help
+        Disable auto-exposure and use a fixed exposure value for capture-only modes.
+
+config CAPTURE_MANUAL_EXPOSURE_VALUE
+    int "Capture-only: manual exposure value (AEC units)"
+    default 200
+    range 0 1200
+    depends on CAPTURE_MANUAL_EXPOSURE
+    help
+        Manual exposure value for OV3660 (units of 1/16 line). Smaller = shorter shutter.
+
+config CAPTURE_PCLK_HZ
+    int "Capture-only: sensor PCLK (Hz)"
+    default 10000000
+    range 1000000 50000000
+    help
+        Pixel clock used to estimate shutter time from AEC value and HTS.
+        Read it from the OV3660 log (PCLK) after init.
+
 config WIFI_SSID
     string "WiFi SSID"
     default ""

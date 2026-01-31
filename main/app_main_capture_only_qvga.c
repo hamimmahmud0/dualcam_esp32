@@ -46,8 +46,8 @@
 #define CAPTURE_FILE_EXT ".frames"
 
 #define INIT_DELAY_MS 200
-#define CAPTURE_INTERVAL_MS 1200
-#define FRAME_QUEUE_LENGTH 5
+#define CAPTURE_INTERVAL_MS 250
+#define FRAME_QUEUE_LENGTH 30
 #define CAPTURE_TASK_STACK_SIZE 4096
 #define WRITER_TASK_STACK_SIZE 6144
 #define CAPTURE_TASK_PRIORITY 5
@@ -160,7 +160,7 @@ static esp_err_t init_camera_rgb565(void)
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
         .pixel_format = PIXFORMAT_RGB565,
-        .frame_size = FRAMESIZE_VGA,
+        .frame_size = FRAMESIZE_QVGA,
         .jpeg_quality = 12,
         .fb_count = 5,
         .grab_mode = CAMERA_GRAB_WHEN_EMPTY,

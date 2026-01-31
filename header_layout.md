@@ -1,0 +1,1 @@
+Header layout is frame_header_t (packed): timestamp_ms, data_len, width, height, format, reserved[3] → 20 bytes, then raw RGB565 bytes.
